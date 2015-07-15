@@ -25,6 +25,9 @@ import theano.tensor as T
 from logistic_sgd import LogisticRegression
 import classification as cl
 
+def relu(x):
+    return 0.5*(x+abs(x))
+
 class InputLayer(object):
     def __init__(self, input, n_in, w=None):
         """
@@ -407,7 +410,7 @@ def train_model(train_set_x_org=None, train_set_y_org=None, valid_set_x_org=None
     num_feat=train_set_x.get_value(borrow=True).shape[1] # number of features
     n_cl=len(numpy.unique(train_set_y_org)) # number of classes
     
-    activations={"tanh":T.tanh,"sigmoid":T.nnet.sigmoid}  
+    activations={"tanh":T.tanh,"sigmoid":T.nnet.sigmoid,"relu":relu}  
     activation=activations[activation_func]
     
     # build a MPL object    

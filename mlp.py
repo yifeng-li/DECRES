@@ -635,7 +635,7 @@ def test_model(classifier, test_set_x_org, batch_size):
     test_time=end_time-start_time
     return test_set_y_predicted,test_set_y_predicted_prob,test_time
 
-def test_model_piecewise(classifier, filename, batch_size):
+def test_model_piecewise(classifier, filename, batch_size,normalization_method=None,normalization_parameter=None):
     """
     same as test_model but reads input file line by line
     Predict class labels of given data using the model learned.
@@ -646,6 +646,10 @@ def test_model_piecewise(classifier, filename, batch_size):
     filename: file location of txt-file numpy 2d array, each row is a sample whose label to be predicted.
     
     batch_size: int scalar, batch size, efficient for a very large number of test samples.
+
+    normalization_method, string, specifiy a normalization method.
+
+    normalization_parameter, list, the parameters used in a normalization method
     
     OUTPUTS:
     test_set_y_predicted: numpy int vector, the class labels predicted.
@@ -686,7 +690,12 @@ def test_model_piecewise(classifier, filename, batch_size):
             
             ### process the block ###
             data_block=numpy.array(data_block,dtype=float)
-            data_block=cl.normalize_l2norm(data_block,tol=1e-10)# normalize
+            # normalization
+            if normalization_method=="scale01":
+                data_block,_,_=cl.normalize_col_scale01(data_block,tol=1e-10,data_min=normalization_parameter[0],data_max=normalization_parameter[1])
+            if normalization_method=="l2norm":
+                data_block=cl.normalize_l2norm(data_block,tol=1e-10)# normalize
+            
             test_set_y_pred_block,test_set_y_pred_prob_block,_=test_model(classifier,data_block,batch_size)
             #test_set_y_pred_block=numpy.ndarray.tolist(test_set_y_pred_block)
             #test_set_y_pred_prob_block=numpy.ndarray.tolist(test_set_y_pred_prob_block)

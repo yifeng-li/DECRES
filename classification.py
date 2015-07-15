@@ -65,6 +65,7 @@ import numpy as np
 #from sklearn import cross_validation
 import math
 import os
+import sys
 
 def normalize_l2norm(data,tol=0):
     """
@@ -916,7 +917,85 @@ def reduce_sample_size(data,classes,times=2):
     data=data[range(0,data.shape[0],times)]
     classes=classes[range(0,classes.shape[0],times)]
     return data,classes
-    
+
+def take_some_features(data,features,given=None):
+    """
+    Use a subset of given features for vectoral samples.
+    INPUTS: 
+    data: numpy 2d array or matrix, each row is a sample, the original data.
+
+    features: numpy 1d array for features.
+
+    given: numpy 1d array or list for features to be used. given=None will use all features.
+
+    OUTPUTS:
+    data: numpy 2d array or matrix, the data using given features.
+
+    features: numpy 1d array, used features.
+    """
+    if given is None:
+        return data,features
+    common,ind1,ind2=take_common_features(features,given)
+    data=data[:,ind1]
+    features=features[ind1]
+    return data,features
+
+def exclude_some_features(data,features,given=None):
+    """
+    Exclude some features for vectoral samples.
+    INPUTS: 
+    data: numpy 2d array or matrix, each row is a sample, the original data.
+
+    features: numpy 1d array for features.
+
+    given: numpy 1d array or list for features to be excluded. given=None will use all features.
+
+    OUTPUTS:
+    data: numpy 2d array or matrix, the data excluding given features.
+
+    features: numpy 1d array, remaining features.
+    """
+    if given is None:
+        return data,features
+    common,ind1,ind2=take_common_features(features,given)
+    data=np.delete(data,ind1,axis=1)
+    features=np.delete(features,ind1)
+    return data,features
+
+def take_some_features_matrical_samples(data,features,given=None):
+    """
+    Use a subset of given features for matrical samples.
+    """
+    num_sample=data.shape[0]
+    feat_total=data.shape[1]
+    num_signal=len(features)
+    feat_each=feat_total//num_signal
+    if given is None:
+        return data,features
+    common,ind1,ind2=take_common_features(features,given)
+    data=data.reshape((num_sample,num_signal,feat_each))
+    data=data[:,ind1,:]
+    features=features[ind1]
+    data=data.reshape((num_sample,len(features)*feat_each))
+    return data,features
+
+def exclude_some_features_matrical_samples(data,features,given=None):
+    """
+    Exclude some features for matrical samples.
+    """
+    num_sample=data.shape[0]
+    feat_total=data.shape[1]
+    num_signal=len(features)
+    feat_each=feat_total//num_signal
+    if given is None:
+        return data,features
+    common,ind1,ind2=take_common_features(features,given)
+    data=data.reshape((num_sample,num_signal,feat_each))
+    data=np.delete(data,ind1,axis=1)
+    features=np.delete(features,ind1)
+    data=data.reshape((num_sample,(len(features))*feat_each))
+    return data,features
+
 def take_unique_features(data,features):
     """
     Take unqiue features and make the change in the data accordingly.
@@ -1026,7 +1105,7 @@ def find_indices(subset,fullset):
     indices=-np.ones(subset.shape,dtype=int)
     indices_full=np.arange(0,len(fullset),1,dtype=int)
     for s in range(0,nsub):
-        indices[s]=indices_full[fullset==subset[s]]
+        indices[s]=indices_full[fullset==subset[s]] # numerical indices
     return indices
 
 def plot_bar_group(filename, data, std=None, xlab='x', ylab='y', title='Bar-Plot', methods=None, datasets=None, figwidth=8, figheight=6, colors=None, legend_loc="lower left", xytick_fontsize=12, xylabel_fontsize=15, title_fontsize=15, legend_fontsize=12):
@@ -1251,8 +1330,8 @@ def plot_box_multi(filename, data, classes, classes_unique=None,  xlab='x', ylab
     
     # add some text for labels, title and axes ticks
     ax.set_ylim(ymin,ymax)
-    ax.set_ylabel(ylab,fontsize=15)
-    ax.set_xlabel(xlab,fontsize=15)    
+    ax.set_ylabel(ylab,fontsize=12)
+    ax.set_xlabel(xlab,fontsize=12)    
     ax.set_title(title,fontsize=15)
     ind = np.arange(len(classes_unique))
     #ax.set_xticks(ind)
@@ -1264,5 +1343,59 @@ def plot_box_multi(filename, data, classes, classes_unique=None,  xlab='x', ylab
     #ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
     #ax.legend( method_bar, methods, loc='lower left', bbox_to_anchor=(1.0, 0.3), fontsize=12 )
     #plt.show()
-    fig.savefig(filename)
+    plt.subplots_adjust(bottom=0.12) # may this is not working because of the following setting
+    fig.savefig(filename,bbox_inches='tight')
     plt.close(fig)
+
+def feat_acc_fit(feat_nums,accs,feat_subsets,tangent=1):
+    """
+    Fit the (number_features_selected,accuracy) pairs by tangent, and return fitted parameters, and number of features and corresponding accuracy given tangent.  
+    """
+    # fit the hyperbolic tangent sigmoid curve
+    from scipy.optimize import curve_fit
+
+    #def hyperbolic_tangent_sigmoid(x,k):
+    #    return 2/(1+np.exp(-2*k*x))-1
+    #popt,pcov=curve_fit(hyperbolic_tangent_sigmoid,feat_nums,accs)
+    #k=popt[0]
+    #print popt
+    
+    ## get number of features and corresponding accuracy given a value of tangent
+    #if k>0 and k<tangent:
+    #    sys.exit()
+    ## denote u=exp(-2kx)
+    #u_1=2*k-tangent + 2*np.sqrt(k*(k-tangent))
+    #u_2=2*k-tangent - 2*np.sqrt(k*(k-tangent))
+    #u=None
+    #if u_1>0 and u_1<1:
+    #    u=u_1
+    #    print "u_1 fufil the condition :)"
+    #if u_2>0 and u_2<1:
+    #    u=u_2
+    #    print "u_2 fufil the condition :)"
+    #x_tangent=-np.log(u)/(2*k)
+    #acc_tangent= hyperbolic_tangent_sigmoid(x_tangent,k)
+    #x_for_plot=np.linspace(np.min(feat_nums),np.max(feat_nums),1000)
+    #y_for_plot=hyperbolic_tangent_sigmoid(x_for_plot,k)
+
+
+    def arctan_func(x,k,s):
+        return 2*s*np.arctan(k*x)/math.pi
+    popt,pcov=curve_fit(arctan_func,feat_nums,accs)
+    k=popt[0]
+    s=popt[1]
+    print popt
+    # get number of features and corresponding accuracy given a value of tangent
+    if 2*k*s-tangent*math.pi<=0:
+        print "error, exit!"
+        sys.exit()
+    x_tangent=(math.sqrt((2*k*s-tangent*math.pi)/(tangent*math.pi)))/k
+    acc_tangent= arctan_func(x_tangent,k,s)
+    x_for_plot=np.linspace(np.min(feat_nums),np.max(feat_nums),1000)
+    y_for_plot=arctan_func(x_for_plot,k,s)
+    return popt,pcov,x_tangent,acc_tangent,x_for_plot,y_for_plot
+
+
+
+    
+    

@@ -58,6 +58,10 @@ def write_bed(path,filename,regionnames,regionsocres,rgb_codes,regions,merge=Tru
     if nc >= 9:
         get_color_for_elements(regionnames,rgb_codes) # change regionnames to colors
         regions[:,8]=regionnames
+    if nc==6:
+        get_color_for_elements(regionnames,rgb_codes) # change regionnames to colors
+        regions=np.hstack((regions,regions[:,1:4]))
+        regions[:,8]=regionnames
     
     if merge:
         print "Need to merge regions"
@@ -217,7 +221,41 @@ def get_genes_from_RefSeqGene(filename_genes,filename_genes_plus,filename_genes_
     np.savetxt(filename_genes_plus,genes_plus,fmt='%s',delimiter='\t')
     np.savetxt(filename_genes_minus,genes_minus,fmt='%s',delimiter='\t')
 
-    
+def fetch_genes(gene_list, known_genes, filename_save_bed='genes_fetched.bed'):
+    """
+    Get the gene coordinates in bed format given a list of gene names.
+    """
 
-
+    known_genes=known_genes[:,(2,4,5,12,11,3)] # chr,txstart,txend,name,score,strand
+    num_genes=gene_list.shape[0]
     
+    if len(gene_list.shape)>1 and gene_list.shape[1]>0:
+        genes_fetched=np.empty((num_genes,6),dtype=object)
+        genes_fetched[:,0:4]=gene_list # chr, start, end, name
+        genes_fetched[:,4]=0 # score
+        genes_fetched[:,5]='.' # strand
+        for i in range(num_genes):
+            for gene in known_genes:
+                # gene name and chr match
+                if gene[3]==gene_list[i,3] and gene[0]==gene_list[i,0]:
+                    genes_fetched[i,5]=gene[5] # strand
+                    continue
+    else: # return any genes matched
+        genes_fetched=np.empty((0,6),dtype=str)
+        for i in range(num_genes):
+            matched=known_genes[known_genes[:,3]==gene_list[i],:]
+            genes_fetched=np.vstack((genes_fetched,matched))
+            
+    np.savetxt(filename_save_bed,genes_fetched,fmt='%s',delimiter='\t')
+    
+def fetch_exons(gene_names,known_exons,filename_save_bed='genes_fetched.bed'):
+    """
+    Extract the exons of given genes.
+    """
+    num_genes=gene_names.shape[0]
+    exons_fetched=np.empty((0,6),dtype=str)
+    for i in range(num_genes):
+        matched=known_exons[known_exons[:,3]==gene_names[i],:]
+        exons_fetched=np.vstack((exons_fetched,matched))
+    np.savetxt(filename_save_bed,exons_fetched,fmt='%s',delimiter='\t') 
+        
