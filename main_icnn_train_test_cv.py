@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-An example of running multilayer perceptrons.
+An example of running integrative convolutional neural network (iCNN).
 Yifeng Li
 CMMT, UBC, Vancouver
 Sep. 23, 2014

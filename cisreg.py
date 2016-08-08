@@ -259,3 +259,26 @@ def fetch_exons(gene_names,known_exons,filename_save_bed='genes_fetched.bed'):
         exons_fetched=np.vstack((exons_fetched,matched))
     np.savetxt(filename_save_bed,exons_fetched,fmt='%s',delimiter='\t') 
         
+
+def find_tss(tss_gene,gene_list):
+    """
+    Find the promoter tss's of given genes.
+
+    INPUTS:
+    tss_gene: numpy 2d array in bed format, the coordinates are tss sites, the names are the associated gene names.
+
+    gene_list: numpy 1d array or a list of given gene names.
+
+    OUTPUTS:
+
+    gene_tss: numpy 2d array in bed format.
+    """
+
+    num_tss=tss_gene.shape[0]
+    tss_gene_names=tss_gene[:,3]
+    ind_log=np.zeros(num_tss,dtype=bool)
+    for g in gene_list:
+        ind_log[tss_gene_names==g]=True
+    gene_tss=tss_gene[ind_log,:]
+    return gene_tss
+        

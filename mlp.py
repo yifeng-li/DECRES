@@ -601,8 +601,8 @@ def train_model(train_set_x_org=None, train_set_y_org=None, valid_set_x_org=None
             num_epoch_not_improve=num_epoch_not_improve+1
             
         if num_epoch_not_improve>=max_num_epoch_not_improve:
-                done_looping = True
-                break
+            done_looping = True
+            break
     # set the best model parameters
     classifier.set_params(best_model_params)
     end_time = time.clock()

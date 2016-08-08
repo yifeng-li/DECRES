@@ -90,7 +90,7 @@ def normalize_l2norm(data,tol=0):
     data=data/(data_sqrt+tol)
     return data
 
-def normalize_col_scale01(data,tol=1e-6,data_min=None,data_max=None):
+def normalize_col_scale01(data,tol=1e-6,data_min=None,data_max=None,clip=False,clip_min=1e-3,clip_max=1e3):
     """
     Normalize each feature (column) to scale [0,1]. 
     
@@ -112,6 +112,9 @@ def normalize_col_scale01(data,tol=1e-6,data_min=None,data_max=None):
     
     Example: ...
     """
+    if clip:
+        data[data<clip_min]=clip_min
+        data[data>clip_max]=clip_max
     if data_max is None:
         data_max=np.max(data,axis=0)
         data_max.reshape((1,data_max.shape[0]))
@@ -121,7 +124,7 @@ def normalize_col_scale01(data,tol=1e-6,data_min=None,data_max=None):
     #tol=0#1e-8
     return (data-data_min)/(data_max-data_min+tol),data_min,data_max
 
-def normalize_row_scale01(data,tol=1e-6,data_min=None,data_max=None):
+def normalize_row_scale01(data,tol=1e-6,data_min=None,data_max=None,clip=False,clip_min=1e-3,clip_max=1e3):
     """
     Normalize each sample (row) to scale [0,1]. 
     
@@ -143,12 +146,20 @@ def normalize_row_scale01(data,tol=1e-6,data_min=None,data_max=None):
     
     Example: ...
     """
+    if clip:
+        data[data<clip_min]=clip_min
+        data[data>clip_max]=clip_max
+
     if data_max is None:
         data_max=np.max(data,axis=1)
         data_max.shape=(data_max.shape[0],1)
+    #if clip:
+    #	data_max[data_max>clip_max]=clip_max
     if data_min is None:
         data_min=np.min(data,axis=1)
         data_min.shape=(data_min.shape[0],1)
+    #if clip:
+    #    data_min[data_min<clip_min]=clip_min
     #tol=1e-6#1e-8
     return (data-data_min)/(data_max-data_min+tol),data_min,data_max
 
@@ -181,6 +192,43 @@ def normalize_mean0std1(data,data_mean=None,data_std=None,tol=1e-6):
     #tol=0#1e-8
     return (data-data_mean)/(data_std+tol),data_mean,data_std
 
+def normalize_deseq(data,size_factors=None):
+    # DESEQ normalization
+    if size_factors is not None:
+        data_normalized=data/size_factors
+        return data_normalized,size_factors
+
+    num_features,num_samples=data.shape
+    geometric_means=np.zeros(shape=(num_features,1),dtype=float)
+    for f in range(num_features):
+        if np.any(data[f,:]==0):
+            geometric_means[f,0]=0
+        else:
+            geometric_means[f,0]=2**(np.mean(np.log2(data[f,:])))
+    #geometric_means=self.data_noheader_nofeature.prod(axis=1)**(1.0/self.num_samples) # geometric mean across all samples
+    print geometric_means
+    print np.median(geometric_means)
+    print geometric_means.shape
+
+    #geometric_means.shape=(len(geometric_means),1)
+    #data_div_means=data_noheader_nofeature_copy/geometric_means
+    #data_div_means=numpy.ma.masked_where(numpy.logical_or(data_div_means==numpy.inf,data_div_means==numpy.nan), data_div_means)
+    #print data_div_means[1:10,:]
+    #self.size_factors=numpy.ma.median(data_div_means, axis=0).filled(0) # masked median
+
+    # compute size factors
+    ind_geometric_means=geometric_means[:,0]!=0
+    print ind_geometric_means.shape
+    print "Total number of geometric means not equal to zero:{}".format(ind_geometric_means.sum())
+    size_factors=np.zeros(shape=(1,num_samples),dtype=float)
+    for s in range(num_samples):
+        size_factors[0,s]=np.median(data[ind_geometric_means,s]/(geometric_means[ind_geometric_means,0]))
+
+    if np.any(size_factors==0):
+        print "Warning: at least one size factor = 0!"
+    data_normalized=data/size_factors
+    return data_normalized,size_factors
+ 
 def normalize_matrical_samples(data,num_signal,method="l2norm"):
     """ 
     Normalize matrical samples.
@@ -264,6 +312,93 @@ def balance_sample_size(data,classes,others=None,min_size_given=None,rng=np.rand
     if np.any(others):
         others=others[indices_all]
     return data,classes,others
+
+def summarize_classes(classes):
+    """
+    Print a summary of the classes.
+    """
+    u, indices = np.unique(classes,return_inverse=True)
+    num_u=len(u)
+    print "****************************"
+    print "Number of samples: {0}".foramt(len(classes))
+    print "Number of Classes:{0}".format(num_u)
+    for c in u:
+        num_c=np.sum(classes==u)
+        print "Class {0}: {1} Samples".format(c,num_c)
+    print "****************************"
+
+def sort_classes(data,classes,others=None):
+    """
+    Group the class labels into blocks, if the class lables distribue randomly in the vector.
+    """
+    indices = np.argsort(classes,kind="mergesort")
+    #print indices
+    data=data[indices,:]
+    classes=classes[indices]
+    if others is not None:
+        others=others[indices]
+    return data,classes,others
+
+def truncate_sample_size(data,classes,others=None,max_size_given=None,rng=np.random.RandomState(100)):
+    """
+    Balance sample size of a data set among classes.
+    
+    INPUTS:
+    data: numpy 2d array or matrix, each row should be a sample.
+    
+    classes: numpy 1d array or vector, class labels.
+    
+    others: numpy 2d array or matrix, extra information of samples if available,
+    each row should associated to a row of data.
+    
+    min_size_given: int, the size of each class wanted.
+    
+    rng: numpy random state.
+    
+    OUTPUTS:
+    data: numpy 2d array or matrix, each row should be a sample, balanced data.
+    
+    classes: numpy 1d array or vector, balanced class labels.
+    
+    others: numpy 2d array or matrix, balanced other information.
+    
+    Example:
+    data=[[1,1,1],[2,2,2],[3,3,3],[4,4,4],[5,5,5],[6,6,6],[7,7,7]]
+    data=np.array(data)
+    classes=np.array(['zz','xx','xx','yy','zz','yy','xx'])
+    balance_sample_size(data,classes,others=NOne,max_size_given=50)
+    """    
+    u, indices = np.unique(classes,return_inverse=True)
+    indices=np.asarray(indices)
+    num_u=len(u)
+    sample_sizes=[]
+    
+    # get sample size of each class
+    for i in xrange(num_u):
+        sample_size_this=np.sum(indices==i)
+        sample_sizes.append(sample_size_this)     
+        
+    size_min=np.amin(sample_sizes) # smallest sample size
+    size_max=np.amax(sample_sizes) # largest sample size
+    
+    if size_max<max_size_given:
+    	max_size_given=size_max
+    sample_sizes[sample_sizes>=max_size_given]=max_size_given        
+
+    indices_all=np.array([],dtype=indices.dtype)
+    indices_range=np.array(range(len(indices)))
+    
+    for i in xrange(num_u):
+        ind_this_num=indices_range[indices==i]
+        ind_this_reduced=ind_this_num[rng.choice(len(ind_this_num),size=sample_sizes[i],replace=False)]
+        indices_all=np.append(indices_all,ind_this_reduced)
+    
+    # reduce the data    
+    data=data[indices_all]
+    classes=classes[indices_all]
+    if np.any(others):
+        others=others[indices_all]
+    return data,classes,others
     
 def change_class_labels(classes):
     """
@@ -333,6 +468,37 @@ def change_class_labels_to_given(classes,given):
         classes_new[classes==i]=given[i]
     return classes_new
     
+def membership_vector_to_indicator_matrix(z,z_unique=None):
+    """
+    Extend membership vector z to binary indicator matrix Z.
+    z: list or numpy vector, numerical class labels of samples.
+    z_unique: list or numpy vector, the unique class labels, useful for tranforming class labels of test samples.
+    For example:
+    z=[-1,-1,-1,0,0,0,1,1,2,2,2]
+    Z=[[1,0,0,0],
+       [1,0,0,0],
+       [1,0,0,0],
+       [0,1,0,0],
+       [0,1,0,0],
+       [0,1,0,0],
+       [0,0,1,0],
+       [0,0,1,0],
+       [0,0,0,1],
+       [0,0,0,1],
+       [0,0,0,1]]
+    """
+    z=np.array(z,dtype=int)
+    if z_unique is None:
+        z_unique=np.unique(z)
+    M=len(z)
+    U=len(z_unique)
+    Z=np.zeros(shape=(M,U),dtype=int)
+    for m in range(M):
+        for u in range(U):
+            if z[m]==z_unique[u]:
+                Z[m,u]=1
+    return Z,z_unique
+
 def merge_class_labels(classes,group):
     """
     Merge class labels into several super groups/classes.
@@ -522,13 +688,23 @@ def partition_train_valid_test2(data, classes, others, ratio=(1,1,1), rng=np.ran
             continue
     train_set_x=data[train_ind]
     train_set_y=classes[train_ind]
-    train_set_others=others[train_ind]
+    if others is not None:
+	train_set_others=others[train_ind]
+    else:
+	train_set_others=None
     valid_set_x=data[valid_ind]
     valid_set_y=classes[valid_ind]
-    valid_set_others=others[valid_ind]
+    if others is not None:
+	valid_set_others=others[valid_ind]
+    else:
+	valid_set_others=None
     test_set_x=data[test_ind]
     test_set_y=classes[test_ind]
-    test_set_others=others[test_ind]
+    if others is not None:
+	test_set_others=others[test_ind]
+    else:
+	test_set_others=None
+	
     return train_set_x,train_set_y,train_set_others,valid_set_x,valid_set_y,valid_set_others,test_set_x,test_set_y,test_set_others
 
 def kfold_cross_validation(classes,k,shuffle=True,rng=np.random.RandomState(1000)):
@@ -581,6 +757,15 @@ def kfold_cross_validation(classes,k,shuffle=True,rng=np.random.RandomState(1000
             indices_folds[indices_cl[start:end]]=ki
             
     return indices_folds
+
+def factor_sizes_to_factor_labels(z,start=-1):
+    # z is a tuple e.g. (3,2,3) of a list e.g. [3,2,3]
+    labels=[]
+    for i in z:
+        labels.extend([start]*i)
+        start=start+1
+    #print labels
+    return labels
 
 def perform(y,y_predicted,unique_classes):
     """
@@ -681,11 +866,11 @@ def save_perform(path,filename,perf=None,std=None,conf_mat=None,classes_unique=N
     if conf_mat is not None:
         np.savetxt(file_handle,conf_mat,fmt="%d",delimiter="\t")
     if training_time is not None and test_time is not None:
-        np.savetxt(file_handle,np.array([training_time,test_time]),fmt="%0.4f",delimiter="\t")
+        np.savetxt(file_handle,np.array([training_time,test_time]),fmt="%1.4e",delimiter="\t")
     if training_time is not None and test_time is None:
-        np.savetxt(file_handle,np.array(training_time),fmt="%0.4f",delimiter="\t")
+        np.savetxt(file_handle,np.array(training_time),fmt="%1.4e",delimiter="\t")
     if training_time is None and test_time is not None:
-        np.savetxt(file_handle,np.array(test_time),fmt="%0.4f",delimiter="\t")
+        np.savetxt(file_handle,np.array(test_time),fmt="%1.4e",delimiter="\t")
     #np.savetxt(file_handle,np.array(test_time),fmt="%s",delimiter="\t")
     file_handle.close()
 
@@ -739,7 +924,7 @@ def write_feature_weight(weights,features,lambda1s,filename):
     features_lambda1s_weights=np.vstack((features,lambda1s_weights))
     np.savetxt(filename,features_lambda1s_weights,fmt='%s',delimiter='\t')
 
-def write_feature_weight2(weights=None, features=None, lambda1s=None, accuracy=None, uniqueness=False, tol=1e-4, filename='selected_features.txt'):
+def write_feature_weight2(weights=None, features=None, lambda1s=None, accuracy=None, uniqueness=False, tol=1e-4, filename='selected_features.txt',many_features=False):
     """
     Write the weights of the input layer of a DFS and other information (accuracy, feature subsets) to a file.  Only applicable to deep feature selection.
     
@@ -816,14 +1001,26 @@ def write_feature_weight2(weights=None, features=None, lambda1s=None, accuracy=N
         accuracy_take.round(decimals=4)
         features=np.insert(features,0,['lambda','accuracy','num_selected','feature_subset'])
         features.resize((1,features.shape[0]))
-        
-        data=np.hstack((lambda1s_take,accuracy_take, num_take,features_take,weights_take))
-        data=np.vstack((features,data))
+        if not many_features:
+            data=np.hstack((lambda1s_take,accuracy_take, num_take,features_take,weights_take))
+            data=np.vstack((features,data))
+	else:
+	    header=np.array(['lambda','accuracy','num_selected'])
+            header.resize((1,header.shape[0]))
+	    data=np.hstack((lambda1s_take,accuracy_take, num_take))
+	    data=np.vstack((header,data))
     else:
-        features=np.insert(features,0,['lambda','num_selected','feature_subset'])
-        features.resize((1,features.shape[0]))
-        data=np.hstack((lambda1s_take,num_take,features_take,weights_take))
-        data=np.vstack((features,data))
+	if not many_features:
+            features=np.insert(features,0,['lambda','num_selected','feature_subset'])
+            features.resize((1,features.shape[0]))
+            data=np.hstack((lambda1s_take,num_take,features_take,weights_take))
+            data=np.vstack((features,data))
+	else:
+            header=np.array(['lambda','num_selected'])
+            header.resize((1,header.shape[0]))
+	    data=np.hstack((lambda1s_take, num_take))
+	    data=np.vstack((header,data))
+
     np.savetxt(filename,data,fmt='%s',delimiter='\t')
    
 def take_first(nums):
@@ -1108,6 +1305,57 @@ def find_indices(subset,fullset):
         indices[s]=indices_full[fullset==subset[s]] # numerical indices
     return indices
 
+
+def plot_bar(filename, data, std=None, xlab='x', ylab='y', ylim=[0,1],yticks=np.arange(0,1.1,0.1), title='Bar-Plot', methods=None, datasets=None, figwidth=8, figheight=6, colors=None, legend_loc="lower center", xytick_fontsize=12, xylabel_fontsize=15, title_fontsize=15, legend_fontsize=12):
+    """
+    Plot grouped bars given a vector.
+    data: 1d-array, each element represents the result of a method.
+    """
+    import matplotlib as mpl
+    mpl.use("pdf")
+    import matplotlib.pyplot as plt
+
+    data=np.array(data)
+    num_methods=len(data)
+    
+    # colors
+    if colors is None:
+        colors=['b','r','g','c','m','y','k','w'] # maximally 8 colors allowed so far
+
+    ind = np.arange(num_methods)  # the x locations of the bars
+    width = 0.8                   # the width of the bars
+    fig=plt.figure(num=1,figsize=(figwidth,figheight))
+    ax=fig.add_subplot(1,1,1)
+    if std is None:
+        ax.bar(ind,data,width,color=colors[0:num_methods],ecolor='k')
+    else:
+        ax.bar(ind,data,width,color=colors[0:num_methods],yerr=std,ecolor='k')
+
+    # add some text for labels, title and axes ticks
+    ax.set_ylabel(ylab,fontsize=xylabel_fontsize)
+    ax.set_xlabel(xlab,fontsize=xylabel_fontsize)
+    ax.set_title(title,fontsize=title_fontsize)
+    ax.set_xticks(ind+0.5*width)
+    ax.set_xticklabels( methods )
+    #if ylim is None:
+    #    yticks=np.arange(0,1.1,0.1)
+    #	ylim=[0,1]
+    if yticks is not None:
+        ax.set_yticks(yticks)
+    if ylim is not None:
+        ax.set_ylim(ylim[0],ylim[1])
+    plt.setp(ax.get_xticklabels(), fontsize=xytick_fontsize)
+    plt.setp(ax.get_yticklabels(), fontsize=xytick_fontsize)
+    # shrink axis box    
+    #box = ax.get_position()
+    #ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    #ax.legend( method_bar, methods, loc='lower left', bbox_to_anchor=(1.0, 0.3), fontsize=legend_fontsize )
+    #ax.legend(methods, loc=legend_loc, fontsize=legend_fontsize )
+    #plt.show()
+    fig.savefig(filename,bbox_inches='tight')
+    plt.close(fig)
+
+
 def plot_bar_group(filename, data, std=None, xlab='x', ylab='y', title='Bar-Plot', methods=None, datasets=None, figwidth=8, figheight=6, colors=None, legend_loc="lower left", xytick_fontsize=12, xylabel_fontsize=15, title_fontsize=15, legend_fontsize=12):
     """
     Plot grouped bars given a matrix.
@@ -1149,7 +1397,7 @@ def plot_bar_group(filename, data, std=None, xlab='x', ylab='y', title='Bar-Plot
     #box = ax.get_position()
     #ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
     #ax.legend( method_bar, methods, loc='lower left', bbox_to_anchor=(1.0, 0.3), fontsize=legend_fontsize )
-    ax.legend( method_bar, methods, loc='lower center', fontsize=legend_fontsize )
+    ax.legend( method_bar, methods, loc=legend_loc, fontsize=legend_fontsize )
     #plt.show()
     fig.savefig(filename)
     plt.close(fig)
@@ -1347,7 +1595,7 @@ def plot_box_multi(filename, data, classes, classes_unique=None,  xlab='x', ylab
     fig.savefig(filename,bbox_inches='tight')
     plt.close(fig)
 
-def feat_acc_fit(feat_nums,accs,feat_subsets,tangent=1):
+def feat_acc_fit(feat_nums,accs,feat_subsets=None,tangent=1):
     """
     Fit the (number_features_selected,accuracy) pairs by tangent, and return fitted parameters, and number of features and corresponding accuracy given tangent.  
     """
@@ -1396,6 +1644,42 @@ def feat_acc_fit(feat_nums,accs,feat_subsets,tangent=1):
     return popt,pcov,x_tangent,acc_tangent,x_for_plot,y_for_plot
 
 
+def plot_3D_surface(X,Y,Z,dir_save="./",prefix="Parameter1_Parameter_2_Accuracy",figwidth=6,figheight=6,xlab="X",ylab="Y",zlab="Z",xyzlabel_fontsize=8,xyztick_fontsize=8,fmt="pdf",dpi=600):
+    # X,Y,Z,: 2D numpy array. Z[i,j]=f(X[i,j],Y[i,j]) 
+    from mpl_toolkits.mplot3d import Axes3D
+    from matplotlib import cbook
+    from matplotlib import cm
+    from matplotlib.colors import LightSource
+    import matplotlib.pyplot as plt
+    fig = plt.figure(figsize=(figwidth,figheight))
+    ax = fig.add_subplot(111, projection='3d') # new version
+    #fig, ax = plt.subplots(subplot_kw=dict(projection='3d'))
+    ls = LightSource(270, 45)
+    #rgb = ls.shade(Z, cmap=cm.gist_earth, vert_exag=0.1, blend_mode='soft')
+    #surf = ax.plot_surface(X, Y, Z, rstride=1, cstride=1, facecolors=rgb, linewidth=0, antialiased=False, shade=False)
+    surf=ax.plot_surface(X, Y, Z, cmap='hot', cstride=1, rstride=1,linewidth=0.5)
+    ax.set_xlabel(xlab,linespacing=3, fontsize=xyzlabel_fontsize)
+    ax.set_ylabel(ylab,linespacing=3, fontsize=xyzlabel_fontsize)
+    ax.set_zlabel(zlab,linespacing=3, fontsize=xyzlabel_fontsize)
+    plt.setp(ax.get_xticklabels(), fontsize=xyztick_fontsize)
+    plt.setp(ax.get_yticklabels(), fontsize=xyztick_fontsize)
+    plt.setp(ax.get_zticklabels(), fontsize=xyztick_fontsize)
+    
+    X_unique=np.unique(X)
+    ax.set_xticks(X_unique)
+    ax.set_xticklabels( np.array(X_unique,dtype=str) )
+    ax.set_xlim(np.min(X_unique),np.max(X_unique))
+    Y_unique=np.unique(Y)
+    ax.set_yticks(Y_unique)
+    ax.set_yticklabels( np.array(Y_unique,dtype=str) )
+    ax.set_ylim(np.min(Y_unique),np.max(Y_unique))
+    ax.set_zticks(np.arange(0,1.1,0.1))	
+    ax.set_zlim(0,1)
+    #plt.show()
+    filename=dir_save+prefix+"_3d_surface."+fmt
+    plt.tight_layout()
+    fig.savefig(filename,format=fmt,dpi=dpi)
+    plt.close(fig)
 
     
     

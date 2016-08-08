@@ -7,7 +7,7 @@ Copyright (c) 2008-2013, Theano Development Team All rights reserved.
 
 Yifeng Li
 CMMT, UBC, Vancouver
-Sep 23, 2014
+Aug 05, 2015
 Contact: yifeng.li.cn@gmail.com
 """
 
@@ -27,30 +27,6 @@ import classification as cl
 
 def relu(x):
     return 0.5*(x+abs(x))
-
-class InputLayer(object):
-    def __init__(self, input, n_in, w=None):
-        """
-        In the input layer x_i is multiplied by w_i.
-        Yifeng Li, in UBC.
-        Aug 26, 2014.
-        """
-        self.input=input
-        if w is None:
-            w_values = numpy.ones((n_in,), dtype=theano.config.floatX)
-#            w_values = numpy.asarray(rng.uniform(
-#                    low=0, high=1,
-#                    size=(n_in,)), dtype=theano.config.floatX)            
-            w = theano.shared(value=w_values, name='w', borrow=True)
-        self.w=w
-        #u_values = numpy.ones((n_in,), dtype=theano.config.floatX)
-        #u = theano.shared(value=u_values, name='u', borrow=True)
-        #self.u=u # auxiliary variable for non-negativity
-        self.output = self.w * self.input
-        #self.params=[w,u]
-        self.params=[w]
-    def get_predicted(self,data):
-        return self.w * data
 
 class HiddenLayer(object):
     def __init__(self, rng, input, n_in, n_out, W=None, b=None,
@@ -126,11 +102,11 @@ class HiddenLayer(object):
 
 class DFS(object):
     """
-    Deep feature selection class. One-one input layer + MLP. 
+    Deep feature selection class. Apply L2,1-norm on the first hidden layer. 
     """
 
     def __init__(self, rng, n_in, n_hidden, n_out, x=None, y=None, activation=T.tanh,
-                 lambda1=0.001, lambda2=1.0, alpha1=0.001, alpha2=0.0):
+                 lambda21=0.001, alpha1=0.001, alpha2=0.0):
         """Initialize the parameters for the DFL class.
 
         :type rng: numpy.random.RandomState
@@ -149,21 +125,13 @@ class DFS(object):
         
         activation: activation function, from {T.tanh, T.nnet.sigmoid}
         
-        lambda1: float scalar, control the sparsity of the input weights.
-        The regularization term is lambda1( (1-lambda2)/2 * ||w||_2^2 + lambda2 * ||w||_1 ).
-        Thus, the larger lambda1 is, the sparser the input weights are.
-        
-        lambda2: float scalar, control the smoothness of the input weights.
-        The regularization term is lambda1( (1-lambda2)/2 * ||w||_2^2 + lambda2 * ||w||_1 ).
-        Thus, the larger lambda2 is, the smoother the input weights are.
+        lambda21: float scalar, control the sparsity of the input weights.
         
         alpha1: float scalar, control the sparsity of the weight matrices in MLP.
-        The regularization term is alpha1( (1-alpha2)/2 * \sum||W_i||_2^2 + alpha2 \sum||W_i||_1 ).
-        Thus, the larger alpha1 is, the sparser the MLP weights are.
+        The regularization term is alpha1( (1-alpha2)/2 * \sum||W_i||_2^2 + alpha2 \sum||W_i||_1 ), where the first hidden layer is not considered. Thus, the larger alpha1 is, the sparser the MLP weights are.
         
         alpha2: float scalar, control the smoothness of the weight matrices in MLP.
-        The regularization term is alpha1( (1-alpha2)/2 * \sum||W_i||_2^2 + alpha2 \sum||W_i||_1 ).
-        Thus, the larger alpha2 is, the smoother the MLP weights are.
+        The regularization term is alpha1( (1-alpha2)/2 * \sum||W_i||_2^2 + alpha2 \sum||W_i||_1 ), where the first hidden layer is not considered. Thus, the larger alpha2 is, the smoother the MLP weights are.
         """
         
         if not x:
@@ -173,17 +141,18 @@ class DFS(object):
             y=T.ivector('y')
         self.y=y
         
-        self.hidden_layers=[]
+        self.hidden_layers=[]# do not include the first hidden layer
         self.params=[]
         self.n_layers=len(n_hidden)        
         
-        input_layer=InputLayer(input=self.x,n_in=n_in)
-        self.params.extend(input_layer.params)
-        self.input_layer=input_layer
+        #input_layer=InputLayer(input=self.x,n_in=n_in)
+        #self.params.extend(input_layer.params)
+        #self.input_layer=input_layer
         for i in range(len(n_hidden)):
             if i==0: # first hidden layer
-                hd=HiddenLayer(rng=rng, input=self.input_layer.output, n_in=n_in, n_out=n_hidden[i],
+                hd=HiddenLayer(rng=rng, input=self.x, n_in=n_in, n_out=n_hidden[i],
                                activation=activation)
+                self.input_layer=hd
             else:
                 hd=HiddenLayer(rng=rng, input=self.hidden_layers[i-1].output, n_in=n_hidden[i-1], n_out=n_hidden[i],
                                activation=activation)
@@ -194,7 +163,7 @@ class DFS(object):
         # of the hidden layer
         if len(n_hidden)<=0:
             self.logRegressionLayer = LogisticRegression(
-                input=self.input_layer.output,
+                input=self.x,
                 n_in=n_in,
                 n_out=n_out)
         else:
@@ -205,20 +174,23 @@ class DFS(object):
         self.params.extend(self.logRegressionLayer.params)
         
         # regularization terms
-        self.L1_input=T.abs_(self.input_layer.w).sum()
-        self.L2_input=(self.input_layer.w **2).sum()
-        self.hinge_loss_neg=(T.maximum(0,-self.input_layer.w)).sum() # penalize negative values
-        self.hinge_loss_pos=(T.maximum(0,self.input_layer.w)).sum()  # # penalize positive values
-        L1s=[]
-        L2_sqrs=[]
-        #L1s.append(abs(self.hidden_layers[0].W).sum())
-        for i in range(len(n_hidden)):
-            L1s.append (T.abs_(self.hidden_layers[i].W).sum())
-            L2_sqrs.append((self.hidden_layers[i].W ** 2).sum())
-        L1s.append(T.abs_(self.logRegressionLayer.W).sum())
-        L2_sqrs.append((self.logRegressionLayer.W ** 2).sum())        
-        self.L1 = T.sum(L1s)
-        self.L2_sqr = T.sum(L2_sqrs)
+        if len(n_hidden)<=0:
+            #self.L21_input=T.sqrt( (self.logRegressionLayer.W ** 2).sum(axis=1) ).sum()
+            self.L21_input=T.sqrt( T.sqr(self.logRegressionLayer.W).sum(axis=1) ).sum()
+        else:
+            #self.L21_input=T.sqrt( (self.hidden_layers[0].W ** 2).sum(axis=1) ).sum()
+            #self.L21_input=T.sqrt( T.sqr(self.hidden_layers[0].W).sum(axis=1) ).sum()
+            self.L21_input=T.sum(T.sqrt(T.sum(T.sqr(self.hidden_layers[0].W),axis=1) ))
+            #self.L21_input=((self.hidden_layers[0].W**2).sum(axis=1)**0.5).sum()
+            L1s=[]
+            L2_sqrs=[]
+            for i in range(1,len(n_hidden)):
+                L1s.append (T.abs_(self.hidden_layers[i].W).sum())
+                L2_sqrs.append((self.hidden_layers[i].W ** 2).sum())
+            L1s.append(T.abs_(self.logRegressionLayer.W).sum())
+            L2_sqrs.append((self.logRegressionLayer.W ** 2).sum())        
+            self.L1 = T.sum(L1s)
+            self.L2_sqr = T.sum(L2_sqrs)
 
         # negative log likelihood of the MLP is given by the negative
         # log likelihood of the output of the model, computed in the
@@ -232,14 +204,13 @@ class DFS(object):
 #         + lambda1*lambda2*(1.0-lambda3)*self.hinge_loss_pos \
 #         + lambda1*lambda2*lambda3*self.hinge_loss_neg \
 #         + alpha1*(1.0-alpha2)*0.5 * self.L2_sqr + alpha1*alpha2 * self.L1
-	self.cost = self.negative_log_likelihood(self.y) \
-         + lambda1*(1.0-lambda2)*0.5*self.L2_input \
-         + lambda1*lambda2*self.L1_input \
-         + alpha1*(1.0-alpha2)*0.5* self.L2_sqr + alpha1*alpha2 * self.L1
         #self.cost = self.negative_log_likelihood(self.y) \
-        # + lambda1*(1.0-lambda2)*(0.5/n_in)*self.L2_input \
-        # + lambda1*lambda2*(1/n_in)*self.L1_input \
+        # + lambda1*(1.0-lambda2)*0.5*self.L2_input \
+        # + lambda1*lambda2*self.L1_input \
         # + alpha1*(1.0-alpha2)*0.5 * self.L2_sqr + alpha1*alpha2 * self.L1
+        self.cost = self.negative_log_likelihood(self.y) \
+         + lambda21*self.L21_input \
+         + alpha1*(1.0-alpha2)*0.5 * self.L2_sqr + alpha1*alpha2 * self.L1
         self.y_pred=self.logRegressionLayer.y_pred
         self.y_pred_prob=self.logRegressionLayer.y_pred_prob
     
@@ -345,7 +316,7 @@ def read_params(filename):
 
 def train_model(train_set_x_org=None, train_set_y_org=None, valid_set_x_org=None, valid_set_y_org=None, 
                 learning_rate=0.1, alpha=0.01, 
-                lambda1=0.001, lambda2=1.0, alpha1=0.001, alpha2=0.0, 
+                lambda21=0.001, alpha1=0.001, alpha2=0.0, 
                 n_hidden=[256,128,16], n_epochs=1000, batch_size=100, 
                 activation_func="tanh", rng=numpy.random.RandomState(100),
                 max_num_epoch_change_learning_rate=100,max_num_epoch_change_rate=0.8,learning_rate_decay_rate=0.8):
@@ -366,21 +337,13 @@ def train_model(train_set_x_org=None, train_set_y_org=None, valid_set_x_org=None
     
     alpha: float, parameter to trade off the momentum term.
     
-    lambda1: float scalar, control the sparsity of the input weights.
-    The regularization term is lambda1( (1-lambda2)/2 * ||w||_2^2 + lambda2 * ||w||_1 ).
-    Thus, the larger lambda1 is, the sparser the input weights are.
-        
-    lambda2: float scalar, control the smoothness of the input weights.
-    The regularization term is lambda1( (1-lambda2)/2 * ||w||_2^2 + lambda2 * ||w||_1 ).
-    Thus, the larger lambda2 is, the smoother the input weights are.
+    lambda21: float scalar, control the sparsity of the input weights.
         
     alpha1: float scalar, control the sparsity of the weight matrices in MLP.
-    The regularization term is alpha1( (1-alpha2)/2 * \sum||W_i||_2^2 + alpha2 \sum||W_i||_1 ).
-    Thus, the larger alpha1 is, the sparser the MLP weights are.
+    The regularization term is alpha1( (1-alpha2)/2 * \sum||W_i||_2^2 + alpha2 \sum||W_i||_1 ), where the first hidden layer is not considered. Thus, the larger alpha1 is, the sparser the MLP weights are.
     
     alpha2: float scalar, control the smoothness of the weight matrices in MLP.
-    The regularization term is alpha1( (1-alpha2)/2 * \sum||W_i||_2^2 + alpha2 \sum||W_i||_1 ).
-    Thus, the larger alpha2 is, the smoother the MLP weights are.
+    The regularization term is alpha1( (1-alpha2)/2 * \sum||W_i||_2^2 + alpha2 \sum||W_i||_1 ), where the first hidden layer is not considered. Thus, the larger alpha2 is, the smoother the MLP weights are.
     
     n_hidden, vector of int, n_hidden[i]: number of hidden units of the i-th layer.
     
@@ -408,7 +371,9 @@ def train_model(train_set_x_org=None, train_set_y_org=None, valid_set_x_org=None
     # shared variable to reduce the learning rate
     learning_rate_shared=theano.shared(learning_rate,name='learn_rate_shared')
     decay_rate=T.scalar(name='decay_rate',dtype=theano.config.floatX)
-    reduce_learning_rate=theano.function([decay_rate],learning_rate_shared,updates=[(learning_rate_shared,learning_rate_shared*decay_rate)])    
+    min_learning_rate=T.scalar(name='min_learning_rate',dtype=theano.config.floatX)
+    reduce_learning_rate=theano.function([decay_rate],learning_rate_shared,updates=[(learning_rate_shared, learning_rate_shared*decay_rate)])   
+    #reduce_learning_rate=theano.function([decay_rate,min_learning_rate],learning_rate_shared,updates=[(learning_rate_shared, learning_rate_shared*decay_rate if T.le(learning_rate_shared,min_learning_rate) else min_learning_rate)])    
     
     ## define the model below
     num_feat=train_set_x.get_value(borrow=True).shape[1] # number of features
@@ -419,7 +384,7 @@ def train_model(train_set_x_org=None, train_set_y_org=None, valid_set_x_org=None
     
     # build a MPL object    
     classifier = DFS(rng=rng, n_in=num_feat, n_hidden=n_hidden, n_out=n_cl,
-                 lambda1=lambda1, lambda2=lambda2, alpha1=alpha1, alpha2=alpha2,
+                 lambda21=lambda21, alpha1=alpha1, alpha2=alpha2,
                  activation=activation)
                      
     train_model_one_iteration=classifier.build_train_function(train_set_x, train_set_y, batch_size, 
@@ -440,7 +405,7 @@ def train_model(train_set_x_org=None, train_set_y_org=None, valid_set_x_org=None
                                   # check every epoch
     best_validation_loss = numpy.inf
     #max_num_epoch_change_learning_rate=100
-    max_num_epoch_not_improve=3*max_num_epoch_change_learning_rate    
+    max_num_epoch_not_improve=5*max_num_epoch_change_learning_rate    
     #max_num_epoch_change_rate=0.8
     #learning_rate_decay_rate=0.8
     epoch_change_count=0
@@ -455,7 +420,7 @@ def train_model(train_set_x_org=None, train_set_y_org=None, valid_set_x_org=None
             reduce_learning_rate(learning_rate_decay_rate)
             max_num_epoch_change_learning_rate= \
             cl.change_max_num_epoch_change_learning_rate(max_num_epoch_change_learning_rate,max_num_epoch_change_rate)
-            max_num_epoch_not_improve=3*max_num_epoch_change_learning_rate            
+            max_num_epoch_not_improve=5*max_num_epoch_change_learning_rate            
             epoch_change_count=0        
         for minibatch_index in xrange(n_train_batches):
            
@@ -492,8 +457,8 @@ def train_model(train_set_x_org=None, train_set_y_org=None, valid_set_x_org=None
             num_epoch_not_improve=num_epoch_not_improve+1
             
         if num_epoch_not_improve>=max_num_epoch_not_improve:
-            done_looping = True
-            break
+                done_looping = True
+                break
     # set the best model parameters
     classifier.set_params(best_model_params)
     end_time = time.clock()
