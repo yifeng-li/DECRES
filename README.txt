@@ -17,6 +17,7 @@ Convolutional neural network (CNN): convolutional_mlp.py
 Deep feature selection based on MLP: deep_feat_select_mlp.py
 Deep feature selection based on ScA: deep_feat_select_ScA.py
 Deep feature selection based on DBN: deep_feat_select_DBN.py
+Randomized deep feature selection: randomized_dfs.py
 
 4. New convolutional neural network for integrating multiple sources of data:
 Integrative convolutional neural network (iCNN): icnn.py
