@@ -67,6 +67,7 @@ import math
 import os
 import sys
 
+
 def normalize_l2norm(data,tol=0):
     """
     Normalize each row has unit l_2 norm. 
@@ -89,6 +90,7 @@ def normalize_l2norm(data,tol=0):
     #tol=0#1e-8
     data=data/(data_sqrt+tol)
     return data
+
 
 def normalize_col_scale01(data,tol=1e-6,data_min=None,data_max=None,clip=False,clip_min=1e-3,clip_max=1e3):
     """
@@ -123,6 +125,7 @@ def normalize_col_scale01(data,tol=1e-6,data_min=None,data_max=None,clip=False,c
         data_min.reshape((1,data_min.shape[0]))
     #tol=0#1e-8
     return (data-data_min)/(data_max-data_min+tol),data_min,data_max
+
 
 def normalize_row_scale01(data,tol=1e-6,data_min=None,data_max=None,clip=False,clip_min=1e-3,clip_max=1e3):
     """
@@ -163,6 +166,7 @@ def normalize_row_scale01(data,tol=1e-6,data_min=None,data_max=None,clip=False,c
     #tol=1e-6#1e-8
     return (data-data_min)/(data_max-data_min+tol),data_min,data_max
 
+
 def normalize_mean0std1(data,data_mean=None,data_std=None,tol=1e-6):
     """
     Normalize each feature (feature) to mean 0 and std 1.
@@ -191,6 +195,7 @@ def normalize_mean0std1(data,data_mean=None,data_std=None,tol=1e-6):
     data_std.reshape((1,data_std.shape[0]))
     #tol=0#1e-8
     return (data-data_mean)/(data_std+tol),data_mean,data_std
+
 
 def normalize_deseq(data,size_factors=None):
     # DESEQ normalization
@@ -228,6 +233,7 @@ def normalize_deseq(data,size_factors=None):
         print "Warning: at least one size factor = 0!"
     data_normalized=data/size_factors
     return data_normalized,size_factors
+
  
 def normalize_matrical_samples(data,num_signal,method="l2norm"):
     """ 
@@ -254,9 +260,10 @@ def normalize_matrical_samples(data,num_signal,method="l2norm"):
         if method=="scale01":
             data[:,i*feat_each:(i+1)*feat_each],data_min,data_max=normalize_row_scale01(data[:,i*feat_each:(i+1)*feat_each],tol=1e-6)
 
+
 def balance_sample_size(data,classes,others=None,min_size_given=None,rng=np.random.RandomState(100)):
     """
-    Balance sample size of a data set among classes.
+    Balance sample size of a data set among classes by reducing the large classes.
     
     INPUTS:
     data: numpy 2d array or matrix, each row should be a sample.
@@ -313,6 +320,74 @@ def balance_sample_size(data,classes,others=None,min_size_given=None,rng=np.rand
         others=others[indices_all]
     return data,classes,others
 
+
+def balance_sample_size_increase(data,classes,others=None,max_size_given=None,rng=np.random.RandomState(100)):
+    """
+    Balance sample size of a data set among classes by increasing the sample size of small classes.
+    
+    INPUTS:
+    data: numpy 2d array or matrix, each row should be a sample.
+    
+    classes: numpy 1d array or vector, class labels.
+    
+    others: numpy 2d array or matrix, extra information of samples if available,
+    each row should associated to a row of data.
+    
+    max_size_given: int, the size of each class wanted.
+    
+    rng: numpy random state.
+    
+    OUTPUTS:
+    data: numpy 2d array or matrix, each row should be a sample, balanced data.
+    
+    classes: numpy 1d array or vector, balanced class labels.
+    
+    others: numpy 2d array or matrix, balanced other information.
+    
+    Example:
+    data=[[1,1,1],[2,2,2],[3,3,3],[4,4,4],[5,5,5],[6,6,6],[7,7,7]]
+    data=np.array(data)
+    classes=np.array(['zz','xx','xx','yy','zz','yy','xx'])
+    balance_sample_size_increase(data,classes)
+    """    
+    u, indices = np.unique(classes,return_inverse=True)
+    indices=np.asarray(indices)
+    num_u=len(u)
+    sample_sizes=[]
+    
+    # get sample size of each class
+    for i in xrange(num_u):
+        sample_size_this=np.sum(indices==i)
+        sample_sizes.append(sample_size_this)     
+        
+    size_max=np.amax(sample_sizes) # largest sample size
+    
+    if max_size_given and size_max<max_size_given:
+        size_max=max_size_given   
+        
+    indices_all=np.array([],dtype=indices.dtype)
+    indices_range=np.array(range(len(indices)))
+    
+    for i in xrange(num_u):
+        ind_this_num=indices_range[indices==i]
+        #replacetf=True if sample_sizes[i]<size_max else False
+        if sample_sizes[i]>=size_max:
+            ind_this_increased=ind_this_num[rng.choice(sample_sizes[i],size=size_max,replace=False)]
+            indices_all=np.append(indices_all,ind_this_increased)
+        else: # make sure each sample is used at least once
+            ind_this_increased=ind_this_num
+            ind_this_increased2=ind_this_num[rng.choice(sample_sizes[i],size=size_max-sample_sizes[i],replace=True)]
+            indices_all=np.append(indices_all,ind_this_increased)
+            indices_all=np.append(indices_all,ind_this_increased2)
+    
+    # increase the data    
+    data=data[indices_all]
+    classes=classes[indices_all]
+    if np.any(others):
+        others=others[indices_all]
+    return data,classes,others
+
+
 def summarize_classes(classes):
     """
     Print a summary of the classes.
@@ -320,16 +395,19 @@ def summarize_classes(classes):
     u, indices = np.unique(classes,return_inverse=True)
     num_u=len(u)
     print "****************************"
-    print "Number of samples: {0}".foramt(len(classes))
+    print "Number of samples: {0}".format(len(classes))
     print "Number of Classes:{0}".format(num_u)
     for c in u:
-        num_c=np.sum(classes==u)
+        num_c=np.sum(classes==c)
         print "Class {0}: {1} Samples".format(c,num_c)
     print "****************************"
+
 
 def sort_classes(data,classes,others=None):
     """
     Group the class labels into blocks, if the class lables distribue randomly in the vector.
+    data: numpy array, each row is a sample.
+    classes: numpy 1d array, the class labels.
     """
     indices = np.argsort(classes,kind="mergesort")
     #print indices
@@ -338,6 +416,7 @@ def sort_classes(data,classes,others=None):
     if others is not None:
         others=others[indices]
     return data,classes,others
+
 
 def truncate_sample_size(data,classes,others=None,max_size_given=None,rng=np.random.RandomState(100)):
     """
@@ -360,6 +439,8 @@ def truncate_sample_size(data,classes,others=None,max_size_given=None,rng=np.ran
     
     classes: numpy 1d array or vector, balanced class labels.
     
+    indices_all: numpy 1d array, the numerical indices of samples selected.
+
     others: numpy 2d array or matrix, balanced other information.
     
     Example:
@@ -376,14 +457,15 @@ def truncate_sample_size(data,classes,others=None,max_size_given=None,rng=np.ran
     # get sample size of each class
     for i in xrange(num_u):
         sample_size_this=np.sum(indices==i)
-        sample_sizes.append(sample_size_this)     
+        sample_sizes.append(sample_size_this)
+    sample_sizes=np.array(sample_sizes,dtype=int)
         
     size_min=np.amin(sample_sizes) # smallest sample size
     size_max=np.amax(sample_sizes) # largest sample size
     
     if size_max<max_size_given:
     	max_size_given=size_max
-    sample_sizes[sample_sizes>=max_size_given]=max_size_given        
+    sample_sizes[sample_sizes>max_size_given]=max_size_given        
 
     indices_all=np.array([],dtype=indices.dtype)
     indices_range=np.array(range(len(indices)))
@@ -394,11 +476,115 @@ def truncate_sample_size(data,classes,others=None,max_size_given=None,rng=np.ran
         indices_all=np.append(indices_all,ind_this_reduced)
     
     # reduce the data    
-    data=data[indices_all]
+    data=data[indices_all,:]
     classes=classes[indices_all]
     if np.any(others):
         others=others[indices_all]
-    return data,classes,others
+    return data,classes,indices_all,others
+    
+    
+def sampling(data,classes,others=None,portion=0.9,max_size_given=None,rng=np.random.RandomState(100)):
+    """
+    Sample data points for a given portion and upper limit.
+    
+    INPUTS:
+    data: numpy 2d array or matrix, each row should be a sample.
+    
+    classes: numpy 1d array or vector, class labels.
+    
+    others: numpy 2d array or matrix, extra information of samples if available,
+    each row should associated to a row of data.
+
+    portion: float, portion of data points to be sampled.
+    
+    max_size_given: int, upper limit of the sampled data points in each class; if None, no limit.
+    
+    rng: numpy random state.
+    
+    OUTPUTS:
+    data: numpy 2d array or matrix, each row should be a sample, balanced data.
+    
+    classes: numpy 1d array or vector, balanced class labels.
+    
+    indices_all: numpy 1d array, the numerical indices of samples selected.
+
+    others: numpy 2d array or matrix, balanced other information.
+    
+    Example:
+    data=[[1,1,1],[2,2,2],[3,3,3],[4,4,4],[5,5,5],[6,6,6],[7,7,7]]
+    data=np.array(data)
+    classes=np.array(['zz','xx','xx','yy','zz','yy','xx'])
+    sampling(data,classes,others=None,portion=0.6,max_size_given=50)
+    """    
+    u, indices = np.unique(classes,return_inverse=True)
+    indices=np.asarray(indices)
+    num_u=len(u)
+    sample_sizes=[]
+    
+    # get sample size of each class
+    for i in xrange(num_u):
+        sample_size_this=np.sum(indices==i)
+        sample_sizes.append(sample_size_this)
+    sample_sizes=np.array(sample_sizes,dtype=int)
+    sample_sizes=sample_sizes*portion
+    sample_sizes=np.array(sample_sizes,dtype=int)
+    # set a ceiling/limit
+    if max_size_given is not None:
+        sample_sizes[sample_sizes>max_size_given]=max_size_given  
+
+    indices_all=np.array([],dtype=indices.dtype)
+    indices_range=np.array(range(len(indices)))
+
+    # sampling
+    for i in xrange(num_u):
+        ind_this_num=indices_range[indices==i]
+        ind_this_reduced=ind_this_num[rng.choice(len(ind_this_num),size=sample_sizes[i],replace=False)]
+        indices_all=np.append(indices_all,ind_this_reduced)
+    
+    # reduce the data    
+    data=data[indices_all,:]
+    classes=classes[indices_all]
+    if np.any(others):
+        others=others[indices_all]
+    return data,classes,indices_all,others
+    
+
+def sampling_class_portion(data,classes,others=None,class_portion=None,rng=np.random.RandomState(100)):
+    """
+    Sampling data points in each class to keep a given portion among classes.
+    class_portion: dict, the portion for each class, each value should be at least 1, e.g. class_portion={"class0":5,"class1":1,"class3":2}
+    """
+    u, indices = np.unique(classes,return_inverse=True)
+    indices=np.asarray(indices)
+    num_u=len(u)
+    sample_sizes=dict()
+    
+    # get sample size of each class
+    size_min=float("inf")
+    for i in xrange(num_u):
+        sample_size_this=np.sum(indices==i)
+        sample_sizes[u[i]]=sample_size_this
+        if class_portion[u[i]]==1 and sample_size_this<size_min:
+            size_min=sample_size_this
+    print size_min
+
+    indices_all=np.array([],dtype=indices.dtype)
+    indices_range=np.array(range(len(indices)))
+    
+    # sampling
+    for i in xrange(num_u):
+        ind_this_num=indices_range[indices==i]
+        replacetf=True if sample_sizes[u[i]]<(size_min*class_portion[u[i]]) else False
+        ind_this_reduced=ind_this_num[rng.choice(sample_sizes[u[i]],size=size_min*class_portion[u[i]],replace=replacetf)]
+        indices_all=np.append(indices_all,ind_this_reduced)
+    
+    # get the sampled data    
+    data=data[indices_all,:]
+    classes=classes[indices_all]
+    if np.any(others):
+        others=others[indices_all]
+    return data,classes,indices_all,others
+    
     
 def change_class_labels(classes):
     """
@@ -420,6 +606,7 @@ def change_class_labels(classes):
     """
     u,indices=np.unique(classes,return_inverse=True)
     return u,indices   
+
 
 def change_class_labels_back(classes,given):
     """
@@ -444,6 +631,7 @@ def change_class_labels_back(classes,given):
         classes_new[classes==i]=given[i]
     return classes_new
 
+
 def change_class_labels_to_given(classes,given):
     """
     Change original class labels to given labels.
@@ -467,6 +655,7 @@ def change_class_labels_to_given(classes,given):
     for i in given:
         classes_new[classes==i]=given[i]
     return classes_new
+
     
 def membership_vector_to_indicator_matrix(z,z_unique=None):
     """
@@ -498,6 +687,7 @@ def membership_vector_to_indicator_matrix(z,z_unique=None):
             if z[m]==z_unique[u]:
                 Z[m,u]=1
     return Z,z_unique
+
 
 def merge_class_labels(classes,group):
     """
@@ -537,6 +727,7 @@ def merge_class_labels(classes,group):
                 classes_merged[classes==member]=i
     
     return classes_merged
+ 
     
 def take_some_classes(data,classes,given,others=None):
     """
@@ -567,6 +758,7 @@ def take_some_classes(data,classes,given,others=None):
     if np.any(others):
         others=others[log_ind]
     return data,classes,others
+
 
 def partition_train_valid_test(data, classes,ratio=(1,1,1), rng=np.random.RandomState(1000)):
     """
@@ -629,6 +821,7 @@ def partition_train_valid_test(data, classes,ratio=(1,1,1), rng=np.random.Random
     test_set_x=data[test_ind]
     test_set_y=classes[test_ind]
     return train_set_x,train_set_y,valid_set_x,valid_set_y,test_set_x,test_set_y
+
 
 def partition_train_valid_test2(data, classes, others, ratio=(1,1,1), rng=np.random.RandomState(1000)):
     """
@@ -707,6 +900,7 @@ def partition_train_valid_test2(data, classes, others, ratio=(1,1,1), rng=np.ran
 	
     return train_set_x,train_set_y,train_set_others,valid_set_x,valid_set_y,valid_set_others,test_set_x,test_set_y,test_set_others
 
+
 def kfold_cross_validation(classes,k,shuffle=True,rng=np.random.RandomState(1000)):
     """
     kfold cross-validation.
@@ -758,6 +952,7 @@ def kfold_cross_validation(classes,k,shuffle=True,rng=np.random.RandomState(1000
             
     return indices_folds
 
+
 def factor_sizes_to_factor_labels(z,start=-1):
     # z is a tuple e.g. (3,2,3) of a list e.g. [3,2,3]
     labels=[]
@@ -766,6 +961,7 @@ def factor_sizes_to_factor_labels(z,start=-1):
         start=start+1
     #print labels
     return labels
+
 
 def perform(y,y_predicted,unique_classes):
     """
@@ -808,6 +1004,322 @@ def perform(y,y_predicted,unique_classes):
     perf[2*numcl+2]=np.mean(perf[numcl:2*numcl]) # avarage class-wise predictive rate
     return perf,confusion_matrix
 
+
+def prc(test_set_y_org,test_set_y_pred_prob,classes_unique,plot_curve=False,filename="./fig_prc.pdf",colors=None,positive_class_for_two_classes=None,figwidth=5,figheight=5):
+    """
+    Calcuate the area under precision-recall curve, and draw the precision-recall curve.
+    """
+    from sklearn.metrics import precision_recall_curve
+    from sklearn.metrics import average_precision_score
+    from scipy import interp
+    import matplotlib as mpl
+    mpl.use("pdf")
+    import matplotlib.pyplot as plt
+    
+    precision = dict()
+    recall = dict()
+    average_precision = dict()
+    n_classes=len(classes_unique)
+    test_set_Y_org,test_set_y_org_unique=membership_vector_to_indicator_matrix(test_set_y_org)
+    
+    for c in range(n_classes):
+        precision[c], recall[c], _ = precision_recall_curve(test_set_Y_org[:, c], test_set_y_pred_prob[:, c])
+        average_precision[c] = average_precision_score(test_set_Y_org[:, c], test_set_y_pred_prob[:, c])
+        
+    # Compute macro-average ROC curve and AUROC area
+    # First aggregate all recalls
+    all_recall = np.unique(np.concatenate([recall[c] for c in range(n_classes)]))
+    #all_recall = np.sort(np.concatenate([recall[c] for c in range(n_classes)]))
+    # Then interpolate all PRC curves at this points
+    mean_precision = np.zeros_like(all_recall)
+    for c in range(n_classes):
+        mean_precision = mean_precision + np.interp(all_recall, recall[c][::-1], precision[c][::-1]) # xp in interp() must be in increasing order
+    # Finally average it and compute AUPRC
+    mean_precision = mean_precision/n_classes
+    recall["macro"] = all_recall
+    precision["macro"] = mean_precision
+    #roc_auc["macro"] = auc(fpr["macro"], tpr["macro"])
+    # Compute micro-average ROC curve and ROC area
+    precision["micro"], recall["micro"], _ = precision_recall_curve(test_set_Y_org.ravel(), test_set_y_pred_prob.ravel())
+    average_precision["macro"] = average_precision_score(test_set_Y_org, test_set_y_pred_prob, average="macro") # micro macro, weighted, or samples
+    average_precision["micro"] = average_precision_score(test_set_Y_org, test_set_y_pred_prob, average="micro") # micro macro, weighted, or samples
+    average_precision["weighted"] = average_precision_score(test_set_Y_org, test_set_y_pred_prob, average="weighted") # micro macro, weighted, or samples
+    average_precision["samples"] = average_precision_score(test_set_Y_org, test_set_y_pred_prob, average="samples") # micro macro, weighted, or samples
+
+    if plot_curve:
+        fig=plt.figure(num=1,figsize=(figwidth,figheight))
+        ax=fig.add_subplot(1,1,1)
+        if n_classes>2 or positive_class_for_two_classes is None:
+            ax.plot(recall["macro"], precision["macro"], linewidth=1,color=colors[n_classes],label='macro-avg PRC (area={0:0.4f})'.format(average_precision["macro"]))
+        
+        for c in range(n_classes):
+            if positive_class_for_two_classes==None or (n_classes==2 and positive_class_for_two_classes==c):
+                ax.plot(recall[c], precision[c],linewidth=1,color=colors[c],label='PRC of {0} (area={1:0.4f})'.format(classes_unique[c], average_precision[c]))
+                
+        # add some text for labels, title and axes ticks
+        ax.set_ylim(0.0,1.0)
+        ax.set_xlim(0.0,1.0)
+        ax.set_ylabel("Precision",fontsize=12)
+        ax.set_xlabel("Recall",fontsize=12)    
+        #ax.set_title("",fontsize=15)
+        ax.legend(loc="lower left",fontsize=8)
+        #plt.subplots_adjust(bottom=0.12) # may this is not working because of the following setting
+        fig.savefig(filename,bbox_inches='tight')
+        plt.close(fig)
+
+    average_precision_list=[average_precision[c] for c in range(n_classes)]
+    average_precision_list.extend([average_precision["macro"],average_precision["micro"],average_precision["weighted"],average_precision["samples"]])
+    average_precision=np.array(average_precision_list)
+    names=["AUPRC_" + c for c in classes_unique]
+    names.extend(["macro","micro","weighted","samples"])
+    names=np.array(names)
+      
+    return average_precision,names
+
+
+def roc(test_set_y_org,test_set_y_pred_prob,classes_unique,plot_curve=False,filename="./fig_roc.pdf",colors=None,positive_class_for_two_classes=None,figwidth=5,figheight=5):
+    """
+    Calcuate the area under ROC, and draw the ROC.
+    """
+    from sklearn.metrics import roc_curve
+    from sklearn.metrics import auc
+    from sklearn.metrics import roc_auc_score
+    from scipy import interp
+    import matplotlib as mpl
+    mpl.use("pdf")
+    import matplotlib.pyplot as plt
+  
+    fpr = dict()
+    tpr = dict()
+    roc_auc = dict()
+    n_classes=len(classes_unique)
+    test_set_Y_org,test_set_y_org_unique=membership_vector_to_indicator_matrix(test_set_y_org)
+    
+    for c in range(n_classes):
+        fpr[c], tpr[c], _ = roc_curve(test_set_Y_org[:, c], test_set_y_pred_prob[:, c])
+        roc_auc[c] = roc_auc_score(test_set_Y_org[:, c], test_set_y_pred_prob[:, c])
+        
+    # Compute macro-average ROC curve and AUROC area
+    # First aggregate all false positive rates
+    all_fpr = np.unique(np.concatenate([fpr[c] for c in range(n_classes)]))
+    # Then interpolate all ROC curves at this points
+    mean_tpr = np.zeros_like(all_fpr)
+    for c in range(n_classes):
+        mean_tpr += interp(all_fpr, fpr[c], tpr[c])
+    # Finally average it and compute AUC
+    mean_tpr /= n_classes
+    fpr["macro"] = all_fpr
+    tpr["macro"] = mean_tpr
+    #roc_auc["macro"] = auc(fpr["macro"], tpr["macro"])
+    
+    # Compute micro-average PRC curve and PRC areas
+    fpr["micro"], tpr["micro"], _ = roc_curve(test_set_Y_org.ravel(), test_set_y_pred_prob.ravel())
+    roc_auc["macro"] = roc_auc_score(test_set_Y_org, test_set_y_pred_prob, average="macro") # micro macro, weighted, or samples
+    roc_auc["micro"] = roc_auc_score(test_set_Y_org, test_set_y_pred_prob,average="micro") # micro macro, weighted, or samples
+    roc_auc["weighted"] = roc_auc_score(test_set_Y_org, test_set_y_pred_prob, average="weighted") # micro macro, weighted, or samples
+    roc_auc["samples"] = roc_auc_score(test_set_Y_org, test_set_y_pred_prob, average="samples") # micro macro, weighted, or samples
+
+    if plot_curve:
+        fig=plt.figure(num=1,figsize=(figwidth,figheight))
+        ax=fig.add_subplot(1,1,1)
+        ax.plot([0, 1], [0, 1], 'k--')
+        if n_classes>2 or positive_class_for_two_classes is None:
+            ax.plot(fpr["macro"], tpr["macro"], linewidth=1,color=colors[n_classes],label='macro-avg ROC (area={0:0.4f})'.format(roc_auc["macro"]))
+        
+        for c in range(n_classes):
+            if positive_class_for_two_classes is None or (n_classes==2 and positive_class_for_two_classes==c):
+                ax.plot(fpr[c], tpr[c],linewidth=1,color=colors[c],label='ROC of {0} (area={1:0.4f})'.format(classes_unique[c], roc_auc[c]))
+                
+        # add some text for labels, title and axes ticks
+        ax.set_ylim(0.0,1.0)
+        ax.set_xlim(0.0,1.0)
+        ax.set_ylabel("True Positive Rate",fontsize=12)
+        ax.set_xlabel("False Positive Rate",fontsize=12)    
+        #ax.set_title("",fontsize=15)
+        ax.legend(loc="lower right",fontsize=8)
+        #plt.subplots_adjust(bottom=0.12) # may this is not working because of the following setting
+        fig.savefig(filename,bbox_inches='tight')
+        plt.close(fig)
+
+    roc_auc_list=[roc_auc[c] for c in range(n_classes)]
+    roc_auc_list.extend([roc_auc["macro"],roc_auc["micro"],roc_auc["weighted"],roc_auc["samples"]])
+    roc_auc=np.array(roc_auc_list)
+    names=["AUROC_" + c for c in classes_unique]
+    names.extend(["macro","micro","weighted","samples"])
+    names=np.array(names)
+    return roc_auc,names
+
+
+def prcs(test_set_y_org,test_set_y_pred_prob,methods,linestyles,classes_unique,plot_curve=False,filename="./fig_prc.pdf",colors=None,positive_class_for_two_classes=None,figwidth=5,figheight=5):
+    """
+    Calcuate the area under precision-recall curve, and draw the precision-recall curve.
+    INPUTS:
+    test_set_y_pred_prob: list of numpy 1d arrays.
+    methods: list of strings, the classification methods used.
+    classes_unique: list or numpy 1d array of strings, the unique class labels.
+    linestyles: list of strings, including "solid","dashed", "dashdot", "dotted", each style corresponds to a method.
+    """
+    from sklearn.metrics import precision_recall_curve
+    from sklearn.metrics import average_precision_score
+    from scipy import interp
+    import matplotlib as mpl
+    mpl.use("pdf")
+    import matplotlib.pyplot as plt
+    
+    n_classes=len(classes_unique)
+    test_set_Y_org,test_set_y_org_unique=membership_vector_to_indicator_matrix(test_set_y_org)
+
+    num_methods=len(methods)
+    average_precisions=[0]*num_methods
+    names=[None]*num_methods
+    for m in range(num_methods):
+        precision = dict()
+        recall = dict()
+        average_precision = dict()
+        for c in range(n_classes):
+            precision[c], recall[c], _ = precision_recall_curve(test_set_Y_org[:, c], test_set_y_pred_prob[m][:, c])
+            average_precision[c] = average_precision_score(test_set_Y_org[:, c], test_set_y_pred_prob[m][:, c])
+
+        # Compute macro-average ROC curve and AUROC area
+        # First aggregate all recalls
+        all_recall = np.unique(np.concatenate([recall[c] for c in range(n_classes)]))
+        #all_recall = np.sort(np.concatenate([recall[c] for c in range(n_classes)]))
+        # Then interpolate all PRC curves at this points
+        mean_precision = np.zeros_like(all_recall)
+        for c in range(n_classes):
+            mean_precision = mean_precision + np.interp(all_recall, recall[c][::-1], precision[c][::-1]) # xp in interp() must be in increasing order
+        # Finally average it and compute AUPRC
+        mean_precision = mean_precision/n_classes
+        recall["macro"] = all_recall
+        precision["macro"] = mean_precision
+        #roc_auc["macro"] = auc(fpr["macro"], tpr["macro"])
+        # Compute micro-average ROC curve and ROC area
+        precision["micro"], recall["micro"], _ = precision_recall_curve(test_set_Y_org.ravel(), test_set_y_pred_prob[m].ravel())
+        average_precision["macro"] = average_precision_score(test_set_Y_org, test_set_y_pred_prob[m], average="macro") # micro macro, weighted, or samples
+        average_precision["micro"] = average_precision_score(test_set_Y_org, test_set_y_pred_prob[m], average="micro") # micro macro, weighted, or samples
+        average_precision["weighted"] = average_precision_score(test_set_Y_org, test_set_y_pred_prob[m], average="weighted") # micro macro, weighted, or samples
+        average_precision["samples"] = average_precision_score(test_set_Y_org, test_set_y_pred_prob[m], average="samples") # micro macro, weighted, or samples
+
+        if plot_curve:
+            if m==0:
+                fig=plt.figure(num=1,figsize=(figwidth,figheight))
+                ax=fig.add_subplot(1,1,1)
+            if n_classes>2 or positive_class_for_two_classes is None:
+                ax.plot(recall["macro"], precision["macro"], linestyle=linestyles[m],linewidth=1,color=colors[n_classes],label='macro-avg PRC (area={0:0.4f}), {1}'.format(average_precision["macro"], methods[m]))
+
+            for c in range(n_classes):
+                if positive_class_for_two_classes==None or (n_classes==2 and positive_class_for_two_classes==c):
+                    ax.plot(recall[c], precision[c],linestyle=linestyles[m],linewidth=1,color=colors[c],label='PRC of {0} (area={1:0.4f}), {2}'.format(classes_unique[c], average_precision[c], methods[m]))
+
+            # add some text for labels, title and axes ticks
+            if m==num_methods-1:
+                ax.set_ylim(0.0,1.0)
+                ax.set_xlim(0.0,1.0)
+                ax.set_ylabel("Precision",fontsize=12)
+                ax.set_xlabel("Recall",fontsize=12)    
+                #ax.set_title("",fontsize=15)
+                ax.legend(loc="lower left",fontsize=8)
+                #plt.subplots_adjust(bottom=0.12) # may this is not working because of the following setting
+                fig.savefig(filename,bbox_inches='tight')
+                plt.close(fig)
+
+        average_precision_list=[average_precision[c] for c in range(n_classes)]
+        average_precision_list.extend([average_precision["macro"],average_precision["micro"],average_precision["weighted"],average_precision["samples"]])
+        average_precision=np.array(average_precision_list)
+        name=[methods[m]+"_AUPRC_" + c for c in classes_unique]
+        name.extend(["macro","micro","weighted","samples"])
+        name=np.array(name)
+
+        average_precisions[m]=average_precision
+        names[m]=name
+      
+    return average_precisions,names
+
+
+def rocs(test_set_y_org,test_set_y_pred_prob,methods,linestyles,classes_unique,plot_curve=False,filename="./fig_roc.pdf",colors=None,positive_class_for_two_classes=None,figwidth=5,figheight=5):
+    """
+    Calcuate the area under ROC, and draw the ROC.
+    linestyles: list of strings, including "solid","dashed", "dashdot", "dotted"
+    """
+    from sklearn.metrics import roc_curve
+    from sklearn.metrics import auc
+    from sklearn.metrics import roc_auc_score
+    from scipy import interp
+    import matplotlib as mpl
+    mpl.use("pdf")
+    import matplotlib.pyplot as plt
+  
+    n_classes=len(classes_unique)
+    test_set_Y_org,test_set_y_org_unique=membership_vector_to_indicator_matrix(test_set_y_org)
+
+    num_methods=len(methods)
+    roc_aucs=[0]*num_methods
+    names=[None]*num_methods
+    for m in range(num_methods):
+        fpr = dict()
+        tpr = dict()
+        roc_auc = dict()
+        for c in range(n_classes):
+            fpr[c], tpr[c], _ = roc_curve(test_set_Y_org[:, c], test_set_y_pred_prob[m][:, c])
+            roc_auc[c] = roc_auc_score(test_set_Y_org[:, c], test_set_y_pred_prob[m][:, c])
+
+        # Compute macro-average ROC curve and AUROC area
+        # First aggregate all false positive rates
+        all_fpr = np.unique(np.concatenate([fpr[c] for c in range(n_classes)]))
+        # Then interpolate all ROC curves at this points
+        mean_tpr = np.zeros_like(all_fpr)
+        for c in range(n_classes):
+            mean_tpr += interp(all_fpr, fpr[c], tpr[c])
+        # Finally average it and compute AUC
+        mean_tpr /= n_classes
+        fpr["macro"] = all_fpr
+        tpr["macro"] = mean_tpr
+        #roc_auc["macro"] = auc(fpr["macro"], tpr["macro"])
+
+        # Compute micro-average PRC curve and PRC areas
+        fpr["micro"], tpr["micro"], _ = roc_curve(test_set_Y_org.ravel(), test_set_y_pred_prob[m].ravel())
+        roc_auc["macro"] = roc_auc_score(test_set_Y_org, test_set_y_pred_prob[m], average="macro") # micro macro, weighted, or samples
+        roc_auc["micro"] = roc_auc_score(test_set_Y_org, test_set_y_pred_prob[m],average="micro") # micro macro, weighted, or samples
+        roc_auc["weighted"] = roc_auc_score(test_set_Y_org, test_set_y_pred_prob[m], average="weighted") # micro macro, weighted, or samples
+        roc_auc["samples"] = roc_auc_score(test_set_Y_org, test_set_y_pred_prob[m], average="samples") # micro macro, weighted, or samples
+
+        if plot_curve:
+            if m==0:
+                fig=plt.figure(num=1,figsize=(figwidth,figheight))
+                ax=fig.add_subplot(1,1,1)
+            ax.plot([0, 1], [0, 1], 'k--')
+            if n_classes>2 or positive_class_for_two_classes is None:
+                ax.plot(fpr["macro"], tpr["macro"], linestyle=linestyles[m],linewidth=1,color=colors[n_classes],label='{0}: macro-avg ROC (area={1:0.4f})'.format(methods[m], roc_auc["macro"]))
+
+            for c in range(n_classes):
+                if positive_class_for_two_classes is None or (n_classes==2 and positive_class_for_two_classes==c):
+                    ax.plot(fpr[c], tpr[c],linestyle=linestyles[m],linewidth=1,color=colors[c],label='{0}: ROC of {1} (area={2:0.4f})'.format(methods[m], classes_unique[c], roc_auc[c]))
+
+            # add some text for labels, title and axes ticks
+            if m==num_methods-1:
+                ax.set_ylim(0.0,1.0)
+                ax.set_xlim(0.0,1.0)
+                ax.set_ylabel("True Positive Rate",fontsize=12)
+                ax.set_xlabel("False Positive Rate",fontsize=12)    
+                #ax.set_title("",fontsize=15)
+                ax.legend(loc="lower right",fontsize=8)
+                #plt.subplots_adjust(bottom=0.12) # may this is not working because of the following setting
+                fig.savefig(filename,bbox_inches='tight')
+                plt.close(fig)
+
+        roc_auc_list=[roc_auc[c] for c in range(n_classes)]
+        roc_auc_list.extend([roc_auc["macro"],roc_auc["micro"],roc_auc["weighted"],roc_auc["samples"]])
+        roc_auc=np.array(roc_auc_list)
+        name=[methods[m]+"_AUROC_" + c for c in classes_unique]
+        name.extend(["macro","micro","weighted","samples"])
+        name=np.array(name)
+
+        roc_aucs[m]=roc_auc
+        names[m]=name
+        
+    return roc_aucs,names
+    
+
 def con_mat_to_num(confusion_matrix):
     """
     Compute performance given confusion matrix.
@@ -831,7 +1343,178 @@ def con_mat_to_num(confusion_matrix):
     perf[2*numcl+2]=np.mean(perf[numcl:2*numcl]) # avarage class-wise predictive rate
     return perf
 
-def save_perform(path,filename,perf=None,std=None,conf_mat=None,classes_unique=None,training_time=None,test_time=None):
+
+def save_all_perfs_aurocs_auprcs(path="./",filename="perfs_aurocs_auprcs.txt",classes_unique=None,num_runs=1,perfs=None,aurocs=None,auprcs=None):
+    """
+    Save the perfs, auROCs, and auPRCs from all runs.
+    classes_unique: list of strings, the unique class names.
+    num_runs: integer, number of runs.
+    perfs: numpy array, each row corresponds to a run.
+    aurocs: numpy array, each row corresponds to a run.
+    auprcs: numpy array, each row corresponds to a run.
+    """
+    try:
+        os.makedirs(path)
+    except OSError:
+        pass
+    num_classes=len(classes_unique)
+    filename=path + "/" +filename
+    classes_unique_row=np.array(classes_unique)
+    classes_unique_row.shape=(1,len(classes_unique))
+    file_handle=file(filename,'w') # create a new file
+    file_handle.close()
+    file_handle=file(filename,'a') # open to append
+    if perfs is not None:
+        if num_classes==2:
+            header_perf=["Sensitivity","Specificity","PPV", "NPV", "Accuracy", "Balanced_Accuracy", "Averaged_PVs"]
+        else:
+            header_perf=["Classwise_Rate_" + c for c in classes_unique]
+            header_perf.extend(["Classwise_Predictive_Rate_" + c for c in classes_unique])
+            header_perf.extend(["Accuracy","Averaged_Classwise_Rate","Averaged_Classwise_Predictive_Rate"])
+        if num_runs==1:
+            perfs.shape(1,size(perfs))
+    else:
+        header_perf=[]
+        perfs=np.array([])
+        perfs.shape=(num_runs,0)
+    if aurocs is not None:
+        header_auroc=["AUROC_" + c for c in classes_unique]
+        header_auroc.extend(["macro","micro","weighted","samples"])
+        if num_runs==1:
+            aurocs.shape(1,size(aurocs))
+    else:
+        header_auroc=[]
+        aurocs=np.array([])
+        aurocs.shape=(num_runs,0)
+    if auprcs is not None:
+        header_auprc=["AUPRC_" + c for c in classes_unique]
+        header_auprc.extend(["macro","micro","weighted","samples"])
+        if num_runs==1:
+            auprcs.shape(1,size(auprcs))
+    else:
+        header_auprc=[]
+        auprcs=np.array([])
+        auprcs.shape=(num_runs,0)
+        
+    # save header
+    header=[]
+    header.extend(header_perf)
+    header.extend(header_auroc)
+    header.extend(header_auprc)
+    header=np.array(header)
+    header.shape=(1,len(header))
+    np.savetxt(file_handle,header,fmt="%s",delimiter='\t')
+    # save all results
+    results=np.hstack((perfs,aurocs,auprcs))
+    np.savetxt(file_handle,results,fmt="%1.4f",delimiter="\t")
+    file_handle.close()
+    
+
+def save_perform(path="./",filename="mean_performances.txt",create_new_file=True,perf=None,std=None,auroc=None,auroc_std=None,auprc=None,auprc_std=None,conf_mat=None,classes_unique=None,training_time=None,test_time=None,stat_test=None):
+    """
+    Save performance to a txt file.
+    
+    INPUTS:
+    path: string, the path information, e.g. path="/home/yifengli/prog/my/DECREAS/result".
+    
+    filename: string, the name of the txt file to save the performance, e.g. filename="performance.txt".
+
+    perf: numpy 1d array, the performance.
+
+    std: numpy 1d array, STD.
+    
+    conf_mat: numpy 2d array, confusion matrix.
+
+    classes_unique: numpy 1d array, the unique class labels.
+
+    training_time: scalar.
+    
+    test_time: scalar.
+    """
+    try:
+        os.makedirs(path)
+    except OSError:
+        pass
+    num_classes=len(classes_unique)
+    filename=path + "/" +filename
+    classes_unique_row=np.array(classes_unique)
+    classes_unique_row.shape=(1,len(classes_unique))
+    if create_new_file:
+        file_handle=file(filename,'w') # create a new file
+        file_handle.close()
+    file_handle=file(filename,'a') # open to append
+    np.savetxt(file_handle,classes_unique_row,fmt="%s",delimiter='\t')
+    if perf is not None:
+        if num_classes==2:
+            header=["Sensitivity","Specificity","PPV", "NPV", "Accuracy", "Balanced_Accuracy", "Averaged_PVs"]
+        else:
+            header=["Classwise_Rate_" + c for c in classes_unique]
+            header.extend(["Classwise_Predictive_Rate_" + c for c in classes_unique])
+            header.extend(["Accuracy","Averaged_Classwise_Rate","Averaged_Classwise_Predictive_Rate"])
+        header=np.array(header)
+        header.shape=(1,len(header))
+        np.savetxt(file_handle,header,fmt="%s",delimiter='\t')
+        perf=np.array(perf)
+        perf.shape=(1,len(perf))
+        np.savetxt(file_handle,perf,fmt="%1.4f",delimiter="\t")
+    if std is not None:
+        std=np.array(std)
+        std.shape=(1,len(std))
+        np.savetxt(file_handle,std,fmt="%1.4f",delimiter="\t")
+    if auroc is not None:
+        np.savetxt(file_handle,["AUROC"],fmt="%s",delimiter="\t")
+        header=["AUROC_" + c for c in classes_unique]
+        header.extend(["macro","micro","weighted","samples"])
+        header=np.array(header)
+        header.shape=(1,len(header))
+        np.savetxt(file_handle,header,fmt="%s",delimiter='\t')
+        auroc=np.array(auroc)
+        auroc.shape=(1,len(auroc))
+        np.savetxt(file_handle,auroc,fmt="%1.4f",delimiter="\t")
+    if auroc_std is not None:
+        auroc_std=np.array(auroc_std)
+        auroc_std.shape=(1,len(auroc_std))
+        np.savetxt(file_handle,auroc_std,fmt="%1.4f",delimiter="\t")
+    if auprc is not None:
+        np.savetxt(file_handle,["AUPRC"],fmt="%s",delimiter="\t")
+        header=["AUPRC_" + c for c in classes_unique]
+        header.extend(["macro","micro","weighted","samples"])
+        header=np.array(header)
+        header.shape=(1,len(header))
+        np.savetxt(file_handle,header,fmt="%s",delimiter='\t')
+        auprc=np.array(auprc)
+        auprc.shape=(1,len(auprc))
+        np.savetxt(file_handle,auprc,fmt="%1.4f",delimiter="\t")
+    if auprc_std is not None:
+        auprc_std=np.array(auprc_std)
+        auprc_std.shape=(1,len(auprc_std))
+        np.savetxt(file_handle,auprc_std,fmt="%1.4f",delimiter="\t")
+    if conf_mat is not None:
+        np.savetxt(file_handle,["Confusion Matrix"],fmt="%s",delimiter="\t")
+        np.savetxt(file_handle,classes_unique_row,fmt="%s",delimiter="\t")
+        np.savetxt(file_handle,conf_mat,fmt="%d",delimiter="\t")
+    if training_time is not None:
+        np.savetxt(file_handle,["Training_Time"],fmt="%s",delimiter="\t")
+        np.savetxt(file_handle,np.array([training_time]),fmt="%1.4e",delimiter="\t")
+    if test_time is not None:
+        np.savetxt(file_handle,["Test_Time"],fmt="%s",delimiter="\t")
+        np.savetxt(file_handle,np.array([test_time]),fmt="%1.4e",delimiter="\t")
+    if stat_test is not None:
+        np.savetxt(file_handle,["Statistical_Test"],fmt="%s",delimiter="\t")
+        np.savetxt(file_handle,np.array([stat_test]),fmt="%1.4e",delimiter="\t")
+        
+    #if training_time is not None and test_time is not None:
+    #    np.savetxt(file_handle,["Training_Time"],fmt="%s",delimiter="\t")
+    #    np.savetxt(file_handle,np.array([training_time,test_time]),fmt="%1.4e",delimiter="\t")
+    #if training_time is not None and test_time is None:
+    #    np.savetxt(file_handle,np.array(training_time),fmt="%1.4e",delimiter="\t")
+    #if training_time is None and test_time is not None:
+    #    np.savetxt(file_handle,np.array(test_time),fmt="%1.4e",delimiter="\t")
+    #np.savetxt(file_handle,np.array(test_time),fmt="%s",delimiter="\t")
+    file_handle.close()
+    
+
+def save_perform_old(path,filename,perf=None,std=None,conf_mat=None,classes_unique=None,training_time=None,test_time=None):
     """
     Save performance to a txt file.
     
@@ -874,11 +1557,13 @@ def save_perform(path,filename,perf=None,std=None,conf_mat=None,classes_unique=N
     #np.savetxt(file_handle,np.array(test_time),fmt="%s",delimiter="\t")
     file_handle.close()
 
+
 def change_max_num_epoch_change_learning_rate(max_num_epoch_change_learning_rate,max_num_epoch_change_rate):
     max_num_epoch_change_learning_rate= int(math.ceil(max_num_epoch_change_rate * max_num_epoch_change_learning_rate))
     if max_num_epoch_change_learning_rate<=20:
         max_num_epoch_change_learning_rate=20
     return max_num_epoch_change_learning_rate    
+
 
 def drange(start, stop, step):
     """
@@ -890,6 +1575,7 @@ def drange(start, stop, step):
         values.append(r)
         r += step
     return values 
+
     
 def write_feature_weight(weights,features,lambda1s,filename):
     """
@@ -923,6 +1609,7 @@ def write_feature_weight(weights,features,lambda1s,filename):
     features.resize((1,features.shape[0]))
     features_lambda1s_weights=np.vstack((features,lambda1s_weights))
     np.savetxt(filename,features_lambda1s_weights,fmt='%s',delimiter='\t')
+
 
 def write_feature_weight2(weights=None, features=None, lambda1s=None, accuracy=None, uniqueness=False, tol=1e-4, filename='selected_features.txt',many_features=False):
     """
@@ -1022,6 +1709,7 @@ def write_feature_weight2(weights=None, features=None, lambda1s=None, accuracy=N
 	    data=np.vstack((header,data))
 
     np.savetxt(filename,data,fmt='%s',delimiter='\t')
+
    
 def take_first(nums):
     """
@@ -1054,6 +1742,7 @@ def take_first(nums):
         i=i+1    
     return take
 
+
 def take_max(num_feat,acc):
     num_feat=np.array(num_feat,dtype=int)
     acc=np.array(acc,dtype=float)
@@ -1073,6 +1762,7 @@ def take_max(num_feat,acc):
         indices_num_max.extend([indices_num_this[max_ind]])
         
     return np.array(num_feat_max,dtype=int),np.array(acc_max,dtype=float),np.array(indices_num_max,dtype=int)
+
 
 def take_max_acc_for_each_feature_size(num_feat,acc,feat_subset):
 
@@ -1095,6 +1785,7 @@ def take_max_acc_for_each_feature_size(num_feat,acc,feat_subset):
         
     return np.array(num_feat_max,dtype=int),np.array(acc_max,dtype=float),np.array(feat_subset_max,dtype=object)
 
+
 def reduce_sample_size(data,classes,times=2):
     """
     Reduce sample by to 1/times.
@@ -1114,6 +1805,7 @@ def reduce_sample_size(data,classes,times=2):
     data=data[range(0,data.shape[0],times)]
     classes=classes[range(0,classes.shape[0],times)]
     return data,classes
+
 
 def take_some_features(data,features,given=None):
     """
@@ -1137,6 +1829,7 @@ def take_some_features(data,features,given=None):
     features=features[ind1]
     return data,features
 
+
 def exclude_some_features(data,features,given=None):
     """
     Exclude some features for vectoral samples.
@@ -1159,6 +1852,7 @@ def exclude_some_features(data,features,given=None):
     features=np.delete(features,ind1)
     return data,features
 
+
 def take_some_features_matrical_samples(data,features,given=None):
     """
     Use a subset of given features for matrical samples.
@@ -1175,6 +1869,7 @@ def take_some_features_matrical_samples(data,features,given=None):
     features=features[ind1]
     data=data.reshape((num_sample,len(features)*feat_each))
     return data,features
+
 
 def exclude_some_features_matrical_samples(data,features,given=None):
     """
@@ -1193,7 +1888,8 @@ def exclude_some_features_matrical_samples(data,features,given=None):
     data=data.reshape((num_sample,(len(features))*feat_each))
     return data,features
 
-def take_unique_features(data,features):
+
+def take_unique_features(data,features,rm_features=None):
     """
     Take unqiue features and make the change in the data accordingly.
 
@@ -1201,6 +1897,7 @@ def take_unique_features(data,features):
     data: numpy 2d array or matrix, each row is a sample, the original data.
 
     features: numpy 1d array for features.
+    rm_features: numpy 1d array of strings or list of strings, the features to be removed.
 
     OUTPUTS:
     data: the data with unique sorted features.
@@ -1209,10 +1906,18 @@ def take_unique_features(data,features):
     """
     unik,ind=np.unique(features,return_index=True)
     features=unik
+    # remove unwanted features
+    if rm_features is not None:
+	ind_keep=np.array([True]*len(features))
+	for rmf in rm_features:
+	    ind_keep[features==rmf]=False
+	features=features[ind_keep]
+	ind=ind[ind_keep]
     data=data[:,ind]
     return data,features
 
-def take_unique_features_large(filename_data,filename_features,filename_data_save,filename_features_save,block_size=1000):
+
+def take_unique_features_large(filename_data,filename_features,filename_data_save,filename_features_save,rm_features=None,block_size=1000):
     """
     Take unqiue features and make the change in a big data accordingly. Write the resulted data into a txt file.
     """
@@ -1253,7 +1958,7 @@ def take_unique_features_large(filename_data,filename_features,filename_data_sav
             
             ### process the block ###
             data_block=np.array(data_block,dtype=str)
-            data_block,features=take_unique_features(data_block,features_org)
+            data_block,features=take_unique_features(data_block,features_org,rm_features)
             # append to file
             np.savetxt(filename_data_save_handle,data_block,fmt='%s',delimiter='\t')
             ### finished processing the block ###
@@ -1270,6 +1975,7 @@ def take_unique_features_large(filename_data,filename_features,filename_data_sav
 
     # save feature list
     np.savetxt(filename_features_save,features,fmt='%s',delimiter='\t')
+
 
 def take_common_features(feat1,feat2):
     """
@@ -1288,6 +1994,7 @@ def take_common_features(feat1,feat2):
     ind1=find_indices(common,feat1)
     ind2=find_indices(common,feat2)
     return common,ind1,ind2
+
 
 def find_indices(subset,fullset):
     """
@@ -1356,10 +2063,10 @@ def plot_bar(filename, data, std=None, xlab='x', ylab='y', ylim=[0,1],yticks=np.
     plt.close(fig)
 
 
-def plot_bar_group(filename, data, std=None, xlab='x', ylab='y', title='Bar-Plot', methods=None, datasets=None, figwidth=8, figheight=6, colors=None, legend_loc="lower left", xytick_fontsize=12, xylabel_fontsize=15, title_fontsize=15, legend_fontsize=12):
+def plot_bar_group(filename, data, std=None, xlab='x', ylab='y', title='Bar-Plot', methods=None, hatchs=None, datasets=None, figwidth=8, figheight=6, colors=None, legend_loc="lower left", xytick_fontsize=12, xylabel_fontsize=15, title_fontsize=15, legend_fontsize=12,ymin=0,ymax=1,rotation=45):
     """
-    Plot grouped bars given a matrix.
-    data: 2d-array, each row represents the result of a method on multiple data sets.
+    Plot grouped bars given a matrix. Group by datasets.
+    data: 2d-array, #methods X #datasets, each row represents the result of a method on multiple data sets.
     """
     import matplotlib as mpl
     mpl.use("pdf")
@@ -1367,6 +2074,9 @@ def plot_bar_group(filename, data, std=None, xlab='x', ylab='y', title='Bar-Plot
     data=np.array(data)
     num_methods,num_datasets=data.shape
     
+    if hatchs is None:
+        hatchs=[None]*len(methods)
+
     # colors
     if colors is None:
         colors=['b','r','g','c','m','y','k','w'] # maximally 8 colors allowed so far
@@ -1379,18 +2089,20 @@ def plot_bar_group(filename, data, std=None, xlab='x', ylab='y', title='Bar-Plot
     #fig, ax = plt.subplots()
     for i in range(num_methods):
         if std is None:
-            method_bar.append( ax.bar(ind+i*width, data[i,:], width, color=colors[i], ecolor='k'))
+            method_bar.append( ax.bar(ind+i*width, data[i,:], width, color=colors[i], ecolor='k', edgecolor='black', linewidth=0.5, hatch=hatchs[i]))
         else:
             std=np.array(std)
-            method_bar.append( ax.bar(ind+i*width, data[i,:], width, color=colors[i], yerr=std[i,:], ecolor='k'))
+            method_bar.append( ax.bar(ind+i*width, data[i,:], width, color=colors[i], yerr=std[i,:], ecolor='k', edgecolor='black', linewidth=0.5, hatch=hatchs[i]))
 
     # add some text for labels, title and axes ticks
     ax.set_ylabel(ylab,fontsize=xylabel_fontsize)
     ax.set_xlabel(xlab,fontsize=xylabel_fontsize)
     ax.set_title(title,fontsize=title_fontsize)
     ax.set_xticks(ind+0.5*num_methods*width)
-    ax.set_xticklabels( datasets )
+    ax.set_xticklabels(datasets, rotation=rotation)
     ax.set_yticks(np.arange(0,1.1,0.1))
+    ax.set_ylim(ymin,ymax)
+    ax.set_xlim(-0.5,len(datasets)+1)
     plt.setp(ax.get_xticklabels(), fontsize=xytick_fontsize)
     plt.setp(ax.get_yticklabels(), fontsize=xytick_fontsize)
     # shrink axis box    
@@ -1399,8 +2111,54 @@ def plot_bar_group(filename, data, std=None, xlab='x', ylab='y', title='Bar-Plot
     #ax.legend( method_bar, methods, loc='lower left', bbox_to_anchor=(1.0, 0.3), fontsize=legend_fontsize )
     ax.legend( method_bar, methods, loc=legend_loc, fontsize=legend_fontsize )
     #plt.show()
-    fig.savefig(filename)
+    fig.savefig(filename,bbox_inches='tight')
     plt.close(fig)
+
+
+def plot_dot_group(filename, data, std=None, xlab='x', ylab='y', title='Dot-Plot', methods=None, markers=None, datasets=None, figwidth=8, figheight=6, colors=None, legend_loc="lower left", xytick_fontsize=12, xylabel_fontsize=15, title_fontsize=15, legend_fontsize=12,ymin=0,ymax=1,rotation=45):
+    """
+    Plot grouped dots given a matrix. Group by datasets.
+    data: 2d-array, #methods X #datasets, each row represents the result of a method on multiple data sets.
+    """
+    import matplotlib as mpl
+    mpl.use("pdf")
+    import matplotlib.pyplot as plt
+    data=np.array(data)
+    num_methods,num_datasets=data.shape
+    
+    # colors
+    if colors is None:
+        colors=['b','r','g','c','m','y','k','w'] # maximally 8 colors allowed so far, make it robust later
+
+    if markers is None:
+        markers=["s","*","^","+","x","p","d","o","v"] # make it robust later
+
+    ind = np.arange(num_datasets)  # the x locations for the groups
+    fig=plt.figure(num=1,figsize=(figwidth,figheight))
+    ax=fig.add_subplot(1,1,1)
+    for i in range(num_methods):
+        ax.plot(ind,data[i,:],color=colors[i],linestyle="", marker=markers[i],markerfacecolor=colors[i],markersize=12)
+
+    # add some text for labels, title and axes ticks
+    ax.set_ylabel(ylab,fontsize=xylabel_fontsize)
+    ax.set_xlabel(xlab,fontsize=xylabel_fontsize)
+    ax.set_title(title,fontsize=title_fontsize)
+    ax.set_xticks(ind)
+    ax.set_xticklabels(datasets, rotation=rotation)
+    ax.set_yticks(np.arange(0,1.1,0.05))
+    ax.set_ylim(ymin,ymax)
+    ax.set_xlim(ind[0]-0.5,ind[-1]+0.5)
+    plt.setp(ax.get_xticklabels(), fontsize=xytick_fontsize)
+    plt.setp(ax.get_yticklabels(), fontsize=xytick_fontsize)
+    # shrink axis box    
+    #box = ax.get_position()
+    #ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    #ax.legend( method_bar, methods, loc='lower left', bbox_to_anchor=(1.0, 0.3), fontsize=legend_fontsize )
+    ax.legend( methods, loc=legend_loc, fontsize=legend_fontsize )
+    #plt.show()
+    fig.savefig(filename,bbox_inches='tight')
+    plt.close(fig)
+
 
 def plot_3dbar_group(filename, data, std=None, xlab='x', ylab='y', zlab='z', title='3D-Bar-Plot', methods=None, datasets=None, figwidth=4, figheight=3, colors=None, legend_loc="lower left", width=0.5, xytick_fontsize=8, xylabel_fontsize=8, title_fontsize=8, legend_fontsize=8):
     """
@@ -1459,6 +2217,7 @@ def plot_3dbar_group(filename, data, std=None, xlab='x', ylab='y', zlab='z', tit
     #plt.show()
     fig.savefig(filename)
     plt.close(fig)
+
 
 def plot_bar_group_subplots(filename, datas, stds=None, xlabs='x', ylabs='y', titles='Bar-Plot', methods=None, datasets=None, figwidth=8, figheight=6, colors=None, legend_loc="lower left", xytick_fontsize=8, xylabel_fontsize=8, title_fontsize=8, legend_fontsize=8, num_col=2, ymin=None, ymax=None):
     """
@@ -1552,6 +2311,7 @@ def plot_bar_group_subplots(filename, datas, stds=None, xlabs='x', ylabs='y', ti
     fig.savefig(filename)
     plt.close(fig)
     
+    
 def plot_box_multi(filename, data, classes, classes_unique=None,  xlab='x', ylab='y', title='Box-Plot', figwidth=8, figheight=6, ymin=0, ymax=10):
     """
     Plot multiple boxes in a plot according to class information.
@@ -1594,6 +2354,7 @@ def plot_box_multi(filename, data, classes, classes_unique=None,  xlab='x', ylab
     plt.subplots_adjust(bottom=0.12) # may this is not working because of the following setting
     fig.savefig(filename,bbox_inches='tight')
     plt.close(fig)
+
 
 def feat_acc_fit(feat_nums,accs,feat_subsets=None,tangent=1):
     """
@@ -1681,5 +2442,108 @@ def plot_3D_surface(X,Y,Z,dir_save="./",prefix="Parameter1_Parameter_2_Accuracy"
     fig.savefig(filename,format=fmt,dpi=dpi)
     plt.close(fig)
 
+ 
+def Bernoulli_sampling(P=0.5,size=None,rng=np.random.RandomState(100)):
+    """
+    Bernoulli sampling for RMBs and DBMs.
+    P: scalar or numpy array, holding the parameter p of Bernoulli distributions.
+    size: list or dict, the size of sampled array when P is a scalar, when P is an array, it has the same size of P.
+    rng: random number generator.
+    """
+    if (not np.isscalar(P)):
+    	size=P.shape
+    if (np.isscalar(P) and size is None):
+    	size=1
+    S=rng.random_sample(size=size)	
+    return np.array(S<P,dtype=int)
+
+
+def Gaussian_sampling(mu=1,beta=1,size=None,rng=np.random.RandomState(100)):
+    """
+    Gaussian sampling for RMBs and DBMs.
+    mu: scalar or numpy array, holding the mean of Gaussian distributions.
+    beta: scalar or numpy array, holding the precision of Gaussian distribution.
+    size: list or dict, the size of sampled array when P is a scalar, when P is an array, it has the same size of P.
+    rng: random number generator.
+    """
+    if (not np.isscalar(mu)):
+    	size=mu.shape
+    	if len(size.shape)==1: # vector
+    		size=(len(mu),1) # make it 2d
+    		mu.shape=size
+    	X=mu
+    	for i in range(size[0]):
+    		for j in range(size[1]):
+    			X[i,j]=rng.normal(mu[i,j],1/math.sqrt(beta[i]),size=1)
+    if (np.isscalar(mu) and size is None):
+    	size=1
+    	X=rng.normal(mu,beta,size=size)
+    return X
+
+
+def sigmoid(X):
+	"""
+	Compute value of sigmoid function.
+	INPUTS:
+	X: scalar or numpy array.
+	OUTPUTS:
+	Numpy array of sigmoid values.
+	"""
+	if isinstance(X,(list,tuple)):
+		X=np.array(X)
+	return 1/(1+np.exp(-X))
+
+
+def data_distribution(X,dir_save="./", prefix="X", figwidth=5, figheight=4, color="red", ymax=None, ylab="Number of Features", qs=range(5,105,5),width=0.02):
+    """
+    X: numpy array of binary values, each row is a feature.
+    """
+    import matplotlib as mpl
+    mpl.use("pdf")
+    import matplotlib.pyplot as plt
     
+    rowmeanX=np.mean(X,axis=1)
+   
+    ##percentile
+    #q=range(0,101,5)
+    #pctl=numpy.percentile(rowmeanX,q)
+    #print pctl
     
+    # plot histogram
+    fig=plt.figure(num=1,figsize=(figwidth,figheight))
+    ax=fig.add_subplot(1,1,1)
+        
+    ax.hist(rowmeanX, bins=100, range=None, normed=False, weights=None, cumulative=False, bottom=None, histtype='bar', align='mid', orientation='vertical',color=color)
+    ax.set_ylabel(ylab,fontsize=10)
+    ax.set_xlabel("Frequency in Samples",fontsize=10)
+    if ymax is not None:
+        ax.set_ylim(0,ymax)
+    
+    filename=dir_save + "fig_hist_" + prefix + ".pdf"
+    fig.savefig(filename,bbox_inches='tight')
+    plt.close(fig)
+    
+    # plot bar plot
+    #print "Thresholding..."
+    #qs=range(5,105,5)
+    qs=np.array(qs)
+    qs=qs/100
+    counts=[]
+    for q in qs:
+        print q
+        cnt=np.sum(rowmeanX>q)
+        counts.extend([cnt])
+
+    fig=plt.figure(num=1,figsize=(figwidth,figheight))
+    ax=fig.add_subplot(1,1,1)
+        
+    ax.bar(qs-width/2.0, counts, width=width, bottom=None, color=color)
+    ax.set_ylabel(ylab + " Above Threshold",fontsize=10)
+    ax.set_xlabel("Threshold of Frequency in Samples",fontsize=10)
+    #ax.set_ylim(0,20000)
+    
+    filename=dir_save + "fig_hist_" + prefix + "_threshold.pdf"
+    fig.savefig(filename,bbox_inches='tight')
+    plt.close(fig)
+
+
